@@ -14,10 +14,10 @@ __global__ void dev_test_vecAdd(int* A, int* B, int* C, int N)
 
 __global__ void naive_gpu(
 	cam const ref, 
-	std::vector<cam> const &cam_vector, 
+	thrust::device_vector<cam> const &cam_vector, 
 	const int window, 
-	std::vector<cv::Mat> cost_mat, 
-	std::vector<cv::Mat> cost_cube){
+	thrust::device_vector<cv::Mat> cost_mat, 
+	thrust::device_vector<cv::Mat> cost_cube){
 
 	int x = threadIdx.x + blockIdx.x * blockDim.x,
 		y = threadIdx.y + blockIdx.y * blockDim.y,
@@ -86,7 +86,8 @@ __global__ void naive_gpu(
 				}
 			}
 			//store cost
-			cost_mat[camIdx].at<float>(x,y,zIdx) = cost / cc;
+			cv::Mat cost_mat_current = cost_mat[camIdx];
+			cost_mat_current.at<float>(x,y,zIdx) = cost / cc;
 		}
 		
 		//wait for other threads to finish the projection
@@ -101,19 +102,49 @@ __global__ void naive_gpu(
 		//select minimal cost over camIdx for (x,y,zIdx)
 		for(int k = 0; k < cam_vector.size(); k++){
 
+			cam cam_k = cam_vector[k];
+
 			//skip ref (cost = 0)
-			if(cam_vector[k].name == ref.name){
+			if(cam_k.name == ref.name){
 				continue;
 			}
-			min_cost = fminf(cost_mat[k].at<float>(x,y,zIdx),min_cost);
+
+			cv::Mat cost_mat_k = cost_mat[k];
+			min_cost = fminf(cost_mat_k.at<float>(x,y,zIdx),min_cost);
 		}
 
 		//store minimal cost
-		cost_cube[zIdx].at<float>(x,y) = min_cost;
+		cv::Mat current_cost_cube = cost_cube[zIdx];
+		current_cost_cube.at<float>(x,y) = min_cost;
 }
 
-std::vector<cv::Mat> naive_sweeping_plane_gpu(cam const ref, std::vector<cam> const &cam_vector, int window = 3){
+std::vector<cv::Mat> naive_sweeping_plane_gpu(
+	cam const ref, 
+	std::vector<cam> const &cam_vector, 
+	int window = 3
+){
+	/*
+	
+	1) on choisit les params de la grid
+	2) on init tout
+	3) on launch le kernel
+	4) ???
+	5) Profit
+	*/
 
+	dim3 threadSize = dim3(),
+		blockSize = dim3();
+
+	//CPU Side
+	std::vector<cv::Mat> host_cost_cube(ZPlanes);
+
+	//GPU Side
+	thrust::device_vector<cam> dev_cam_vector = cam_vector;
+	thrust::device_vector<cv::Mat> dev_cost_mat;
+	thrust::device_vector<cv::Mat> dev_cost_cube = host_cost_cube;
+
+
+Error:
 
 
 }
