@@ -27,10 +27,49 @@
 
 const int max_threads = 256;
 
-int div_up(int x, int y){
-    return (x + y - 1)/y;
-}
-
 // This is the public interface of our cuda function, called directly in main.cpp
 void wrap_test_vectorAdd();
 std::vector<cv::Mat> naive_sweeping_plane_gpu(cam const ref, std::vector<cam> const &cam_vector, int window = 3);
+
+//4D access of a flattened 1D array
+#define IDX4(x,y,z,k) (int) ((x) + ref.width * (y + ref.height * (z + ZPlanes * (k + cam_vec_size))))
+//2D access of a flattened 1D array
+#define IDX2(x,y) (int) ((x)+ (ref.width * (y)))
+
+/**
+ * GPU compatible camera
+ */
+struct gpu_cam{
+
+    const char* name;
+
+    double *K,
+        *K_inv,
+        *R,
+        *R_inv,
+        *t,
+        *t_inv;
+    
+    int width,
+        height,
+        size;
+
+    uint8_t *Y; // only Y from YUV space will be needed here
+
+    gpu_cam(cam host) : 
+        name(host.name.c_str()),
+
+        K(&host.p.K[0]), 
+        K_inv(&host.p.K_inv[0]),
+        R(&host.p.R[0]), 
+        R_inv(&host.p.R_inv[0]),
+        t(&host.p.t[0]), 
+        t_inv(&host.p.t_inv[0]),
+
+        width(host.width),
+        height(host.height),
+        size(host.size),
+
+        Y((uint8_t*)(host.YUV[0].data))
+    {};
+};
