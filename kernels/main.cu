@@ -24,13 +24,20 @@ __global__ void naive_gpu(
 
 		zIdx = threadIdx.z, // [0 -> 255] -> dans 1 block, on a 256 threads en Z
 		camIdx = blockIdx.z; // pour chaque block, la camera est la même -> on a 3 blocs
-
-		cam current = cam_vector[camIdx];
-
+		
 		if(x > ref.width || y > ref.height){
 			return;
 		}
 
+		//initialize cost_mat vector
+		if(x == 0 && y == 0){
+			cost_mat[camIdx*ZPlanes+zIdx] = cv::Mat(ref.height, ref.width, CV_32FC1, 255.);
+		}
+
+		__syncthreads();
+		
+		cam current = cam_vector[camIdx];
+		
 		if(current.name != ref.name){
 
 			// Calculate z from ZNear, ZFar and ZPlanes (projective transformation) (zi = 0, z = ZFar)
@@ -85,11 +92,8 @@ __global__ void naive_gpu(
 					cc += 1.0f;
 				}
 			}
-			//store cost
-			//cv::Mat cost_mat_current = cost_mat[camIdx];
-			//cost_mat_current.at<float>(x,y,zIdx) = cost / cc;
-			cv::Mat cost_mat_current = cost_mat[zIdx];
-			cost_mat_current.at<float>(x,y,camIdx) = cost / cc;
+			cv::Mat cost_mat_current = cost_mat[camIdx*ZPlanes+zIdx];
+			cost_mat_current.at<float>(x,y) = cost / cc;
 		}
 		
 		
@@ -100,28 +104,27 @@ __global__ void naive_gpu(
 		//thread 0: wait for other threads to finish the projection
 		__syncthreads();
 
-		float min_cost = 0.0f;
-		cv::Mat cost_mat_z = cost_mat[zIdx];
+		//object where minimal value will be stored (cam = 0)
+		cv::Mat cost_mat_write = cost_mat[zIdx];
+
+		float min_cost = cost_mat_write.at<float>(x,y);
 		//select minimal cost over camIdx for (x,y,zIdx)
 		for(int k = 0; k < cam_vec_size; k++){
-
+			
 			cam cam_k = cam_vector[k];
-
+			
 			//skip ref (cost = 0)
 			if(cam_k.name == ref.name){
 				continue;
 			}
-
 			
-			min_cost = fminf(cost_mat_z.at<float>(x,y,k),min_cost);
-			//cv::Mat cost_mat_k = cost_mat[k];
-			//min_cost = fminf(cost_mat_k.at<float>(x,y,zIdx),min_cost);
-
+			cv::Mat cost_mat_current = cost_mat[k*ZPlanes+zIdx];
+			
+			min_cost = fminf(cost_mat_current.at<float>(x,y),min_cost);
 		}
 
 		//store minimal cost
-		cv::Mat current_cost_cube = cost_mat[zIdx];
-		current_cost_cube.at<float>(x,y,0) = min_cost;
+		cost_mat_write.at<float>(x,y) = min_cost;
 }
 
 std::vector<cv::Mat> naive_sweeping_plane_gpu(
@@ -145,33 +148,36 @@ std::vector<cv::Mat> naive_sweeping_plane_gpu(
 	std::vector<cv::Mat> host_cost_cube(ZPlanes);
 
 	//GPU Side
-	cam *dev_cam_vector,
-		dev_cam_ref = dev_cam_vector[0]; //ref is 1st camera
-	cv::Mat *dev_cost_mat; //store result
+	cam *dev_cam_vector;
+	cv::Mat *dev_cost_mat; //output
 
 	//get GPU size
 	size_t cam_vec_size = cam_vector.size();
 
-	//init GPU arrays
-	cudaMalloc(&dev_cam_vector,cam_vec_size*sizeof(cam));
-	cudaMalloc(&dev_cost_mat,ZPlanes*sizeof(cv::Mat));
-
-	//TODO: check si simplifiable
-	for(int i = 0; i < cam_vec_size; i++){
-		cudaMemcpy(&dev_cam_vector+i,&cam_vector[i],sizeof(cam),cudaMemcpyHostToDevice);
-	}
-
+	//x = width
+	//y = height
+	//z = camIdx (blocks) + plane (threads)
+	
 	dim3 threads(max_threads,max_threads,256); //TODO: check si Z supporte 256 threads
-
+	
 	int x_blocks = div_up(ref.width,max_threads),
 		y_blocks = div_up(ref.height,max_threads),
 		z_blocks = cam_vec_size;
 	
-		dim3 blocks(x_blocks,y_blocks,z_blocks);
+	dim3 blocks(x_blocks,y_blocks,z_blocks);
+
+	//init GPU arrays
+	CHK(cudaMalloc(&dev_cam_vector,cam_vec_size*sizeof(cam)));
+	CHK(cudaMalloc(&dev_cost_mat,cam_vec_size*ZPlanes*sizeof(cv::Mat)));
+
+	//TODO: check si simplifiable
+	for(int i = 0; i < cam_vec_size; i++){
+		CHK(cudaMemcpy(&dev_cam_vector+i,&cam_vector[i],sizeof(cam),cudaMemcpyHostToDevice));
+	}
 
 	naive_gpu<<<blocks,threads>>>(
 		//cameras params
-		dev_cam_ref,
+		ref,
 		dev_cam_vector,
 		cam_vec_size,
 
@@ -179,16 +185,18 @@ std::vector<cv::Mat> naive_sweeping_plane_gpu(
 		dev_cost_mat //result
 	);
 
-	cudaMemCpy()
+	//wait for gpu
+	CHK(cudaDeviceSynchronize());
 
-	//x = width
-	//y = height
-	//z = camIdx + plane
+	//copy only results on the 1st cam
+	CHK(cudaMemcpy(&host_cost_cube[0],dev_cost_mat,ZPlanes*sizeof(cv::Mat),cudaMemcpyDeviceToHost));
 
 
 Error:
+	cudaFree(&dev_cam_vector);
+	cudaFree(&dev_cost_mat);
 
-
+	return host_cost_cube;
 }
 
 
