@@ -1,5 +1,5 @@
 #include "main.cuh"
-
+#include "../src/constants.hpp"
 #include <cstdio>
 
 // Those functions are an example on how to call cuda functions from the main.cpp
@@ -14,10 +14,10 @@ __global__ void dev_test_vecAdd(int* A, int* B, int* C, int N)
 
 __global__ void naive_gpu(
 	cam const ref, 
-	thrust::device_vector<cam> const &cam_vector, 
+	cam const *cam_vector, 
+	const int cam_vec_size,
 	const int window, 
-	thrust::device_vector<cv::Mat> cost_mat, 
-	thrust::device_vector<cv::Mat> cost_cube){
+	cv::Mat *cost_mat){
 
 	int x = threadIdx.x + blockIdx.x * blockDim.x,
 		y = threadIdx.y + blockIdx.y * blockDim.y,
@@ -86,21 +86,24 @@ __global__ void naive_gpu(
 				}
 			}
 			//store cost
-			cv::Mat cost_mat_current = cost_mat[camIdx];
-			cost_mat_current.at<float>(x,y,zIdx) = cost / cc;
+			//cv::Mat cost_mat_current = cost_mat[camIdx];
+			//cost_mat_current.at<float>(x,y,zIdx) = cost / cc;
+			cv::Mat cost_mat_current = cost_mat[zIdx];
+			cost_mat_current.at<float>(x,y,camIdx) = cost / cc;
 		}
 		
-		//wait for other threads to finish the projection
-
+		
 		if(camIdx != 0){
 			return;
 		}
-
+		
+		//thread 0: wait for other threads to finish the projection
 		__syncthreads();
 
 		float min_cost = 0.0f;
+		cv::Mat cost_mat_z = cost_mat[zIdx];
 		//select minimal cost over camIdx for (x,y,zIdx)
-		for(int k = 0; k < cam_vector.size(); k++){
+		for(int k = 0; k < cam_vec_size; k++){
 
 			cam cam_k = cam_vector[k];
 
@@ -109,13 +112,16 @@ __global__ void naive_gpu(
 				continue;
 			}
 
-			cv::Mat cost_mat_k = cost_mat[k];
-			min_cost = fminf(cost_mat_k.at<float>(x,y,zIdx),min_cost);
+			
+			min_cost = fminf(cost_mat_z.at<float>(x,y,k),min_cost);
+			//cv::Mat cost_mat_k = cost_mat[k];
+			//min_cost = fminf(cost_mat_k.at<float>(x,y,zIdx),min_cost);
+
 		}
 
 		//store minimal cost
-		cv::Mat current_cost_cube = cost_cube[zIdx];
-		current_cost_cube.at<float>(x,y) = min_cost;
+		cv::Mat current_cost_cube = cost_mat[zIdx];
+		current_cost_cube.at<float>(x,y,0) = min_cost;
 }
 
 std::vector<cv::Mat> naive_sweeping_plane_gpu(
@@ -139,9 +145,45 @@ std::vector<cv::Mat> naive_sweeping_plane_gpu(
 	std::vector<cv::Mat> host_cost_cube(ZPlanes);
 
 	//GPU Side
-	thrust::device_vector<cam> dev_cam_vector = cam_vector;
-	thrust::device_vector<cv::Mat> dev_cost_mat;
-	thrust::device_vector<cv::Mat> dev_cost_cube = host_cost_cube;
+	cam *dev_cam_vector,
+		dev_cam_ref = dev_cam_vector[0]; //ref is 1st camera
+	cv::Mat *dev_cost_mat; //store result
+
+	//get GPU size
+	size_t cam_vec_size = cam_vector.size();
+
+	//init GPU arrays
+	cudaMalloc(&dev_cam_vector,cam_vec_size*sizeof(cam));
+	cudaMalloc(&dev_cost_mat,ZPlanes*sizeof(cv::Mat));
+
+	//TODO: check si simplifiable
+	for(int i = 0; i < cam_vec_size; i++){
+		cudaMemcpy(&dev_cam_vector+i,&cam_vector[i],sizeof(cam),cudaMemcpyHostToDevice);
+	}
+
+	dim3 threads(max_threads,max_threads,256); //TODO: check si Z supporte 256 threads
+
+	int x_blocks = div_up(ref.width,max_threads),
+		y_blocks = div_up(ref.height,max_threads),
+		z_blocks = cam_vec_size;
+	
+		dim3 blocks(x_blocks,y_blocks,z_blocks);
+
+	naive_gpu<<<blocks,threads>>>(
+		//cameras params
+		dev_cam_ref,
+		dev_cam_vector,
+		cam_vec_size,
+
+		window, //kernel
+		dev_cost_mat //result
+	);
+
+	cudaMemCpy()
+
+	//x = width
+	//y = height
+	//z = camIdx + plane
 
 
 Error:

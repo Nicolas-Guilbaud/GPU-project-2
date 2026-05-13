@@ -7,8 +7,6 @@
 #include "../src/constants.hpp"
 
 #include <cstdio>
-#include <thrust/host_vector.h>
-#include <thrust/device_vector.h>
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgcodecs.hpp>
@@ -27,6 +25,11 @@
         }                                                            \
     } while (0)
 
+const int max_threads = 256;
+
+int div_up(int x, int y){
+    return (x + y - 1)/y;
+}
 
 // This is the public interface of our cuda function, called directly in main.cpp
 void wrap_test_vectorAdd();
