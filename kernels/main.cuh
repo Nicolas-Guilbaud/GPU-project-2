@@ -32,9 +32,9 @@ void wrap_test_vectorAdd();
 std::vector<cv::Mat> naive_sweeping_plane_gpu(cam const ref, std::vector<cam> const &cam_vector, int window = 3);
 
 //4D access of a flattened 1D array
-#define IDX4(x,y,z,k) (int) ((x) + ref.width * (y + ref.height * (z + ZPlanes * (k + cam_vec_size))))
+#define IDX4(x,y,z,k) (int) ((x) + ref.width * (y + ref.height * (z + ZPlanes * (k))))
 //2D access of a flattened 1D array
-#define IDX2(x,y) (int) ((x)+ (ref.width * (y)))
+#define IDX2(row,col) (int) ((col)+ (ref.width * (row)))
 
 /**
  * GPU compatible camera

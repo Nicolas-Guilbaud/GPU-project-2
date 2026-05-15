@@ -281,11 +281,9 @@ int main()
 	// Read cams
 	std::vector<cam> cam_vector = read_cams("data");
 
-	// Test call a CUDA function
-	wrap_test_vectorAdd();
-
 	// Sweeping algorithm for camera 0
-	std::vector<cv::Mat> cost_cube = sweeping_plane(cam_vector.at(0), cam_vector, 5);
+	//std::vector<cv::Mat> cost_cube = sweeping_plane(cam_vector.at(0), cam_vector, 5);
+	std::vector<cv::Mat> cost_cube = naive_sweeping_plane_gpu(cam_vector.at(0),cam_vector,5);
 
 	// Use graph cut to generate depth map 
 	// Cleaner results, long compute time
@@ -300,7 +298,7 @@ int main()
 	cv::imshow("Depth", depth);
 	cv::waitKey(0);
 
-	cv::imwrite("./depth_map.png", depth);
+	cv::imwrite("./depth_map_gpu.png", depth);
 
 	//printf("%f", depth.at<uchar>(0, 0));
 

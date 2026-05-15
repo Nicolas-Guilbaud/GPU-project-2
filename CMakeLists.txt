@@ -135,7 +135,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
                 CUDA_RUNTIME_LIBRARY Static
                 CUDA_RESOLVE_DEVICE_SYMBOLS ON
                 )
-target_compile_options(${PROJECT_NAME} PRIVATE "$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:CUDA>>:-G;-lineinfo;--source-in-ptx;>")
+target_compile_options(${PROJECT_NAME} PRIVATE "$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:CUDA>>:-g -G;-lineinfo;--source-in-ptx;>")
 
 
 target_include_directories(${PROJECT_NAME} PUBLIC

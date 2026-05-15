@@ -1,5 +1,6 @@
 #include "main.cuh"
 #include "../src/constants.hpp"
+#include "./debug.cuh"
 #include <cstdio>
 
 // Those functions are an example on how to call cuda functions from the main.cpp
@@ -27,14 +28,12 @@ __global__ void naive_gpu(
 	int x = threadIdx.x + blockIdx.x * blockDim.x,
 		y = threadIdx.y + blockIdx.y * blockDim.y,
 
-		zIdx = threadIdx.z, // [0 -> 255] -> dans 1 block, on a 256 threads en Z
-		camIdx = blockIdx.z; // pour chaque block, la camera est la même -> on a 3 blocs
+		camIdx = threadIdx.z, // [0 -> 255] -> dans 1 block, on a 256 threads en Z
+		zIdx = blockIdx.z; // pour chaque block, la camera est la même -> on a 3 blocs
 		
 		if(x > ref.width || y > ref.height){
 			return;
 		}
-
-		__syncthreads();
 		
 		gpu_cam current = cam_vector[camIdx];
 		
@@ -126,24 +125,19 @@ std::vector<cv::Mat> naive_sweeping_plane_gpu(
 	std::vector<cam> const &cam_vector, 
 	int window
 ){
-	/*
-	
-	1) on choisit les params de la grid
-	2) on init tout
-	3) on launch le kernel
-	4) ???
-	5) Profit
-	*/
 
 	//get cam size
 	size_t cam_vec_size = cam_vector.size();
 
 	//CPU Side
 	std::vector<cv::Mat> host_cost_cube(ZPlanes);
+	float* result = (float*) malloc(ZPlanes*ref.width*ref.height*sizeof(float)); //temporary output (could be optimized ?)
 	gpu_cam *host_cam = (gpu_cam*) malloc(cam_vec_size*sizeof(gpu_cam));
 	//conversion of cameras
 	for(int i = 0; i < cam_vec_size; i++){
-		host_cam[i] = gpu_cam(cam_vector[i]);
+		host_cam[i] = gpu_cam(cam_vector.at(i));
+		//TODO: remove (ensure struct holds correct data) 
+		check_gpu_cam(cam_vector.at(i),host_cam[i]);
 	}
 
 	//GPU Side
@@ -154,24 +148,25 @@ std::vector<cv::Mat> naive_sweeping_plane_gpu(
 	//y = height
 	//z = camIdx (blocks) + plane (threads)
 	
-	dim3 threads(max_threads,max_threads,256); //TODO: check si Z supporte 256 threads
+	dim3 N_threads(max_threads,max_threads,cam_vec_size); //TODO: check si Z supporte 256 threads
 	
 	int x_blocks = div_up(ref.width,max_threads),
 		y_blocks = div_up(ref.height,max_threads),
-		z_blocks = cam_vec_size;
+		z_blocks = ZPlanes;
 	
-	dim3 blocks(x_blocks,y_blocks,z_blocks);
+	dim3 N_blocks(x_blocks,y_blocks,z_blocks);
 
 	//init GPU arrays
-	CHK(cudaMalloc(&dev_cam_vector,cam_vec_size*sizeof(cam)));
-	CHK(cudaMalloc(&dev_cost_mat,cam_vec_size*ZPlanes*ref.width*ref.height));
+	CHK(cudaMalloc(&dev_cam_vector,cam_vec_size*sizeof(gpu_cam)));
+	CHK(cudaMalloc(&dev_cost_mat,cam_vec_size*ZPlanes*ref.width*ref.height*sizeof(float)));
 
-	//TODO: check si simplifiable
-	for(int i = 0; i < cam_vec_size; i++){
-		CHK(cudaMemcpy(&dev_cam_vector+i,&host_cam[i],sizeof(cam),cudaMemcpyHostToDevice));
-	}
+	DEBUG("%d*%d*%d*%d = %d\n",ref.width,ref.height,ZPlanes,cam_vec_size,cam_vec_size*ZPlanes*ref.width*ref.height);
+	//cpy to GPU
+	CHK(cudaMemcpy(dev_cam_vector,host_cam,cam_vec_size*sizeof(gpu_cam),cudaMemcpyHostToDevice));
 
-	naive_gpu<<<blocks,threads>>>(
+	DEBUG("Blocks: (%d,%d,%d) Threads: (%d,%d,%d)\n",N_blocks.x,N_blocks.y,N_blocks.z,N_threads.x,N_threads.y,N_threads.z);
+
+	naive_gpu<<<N_blocks,N_threads>>>(
 		//cameras params
 		ref,
 		dev_cam_vector,
@@ -184,14 +179,22 @@ std::vector<cv::Mat> naive_sweeping_plane_gpu(
 	//wait for gpu
 	CHK(cudaDeviceSynchronize());
 
-	//copy only results on the 1st cam
-	CHK(cudaMemcpy(&host_cost_cube[0],dev_cost_mat,ZPlanes*sizeof(cv::Mat),cudaMemcpyDeviceToHost));
+	//copy only results of the 1st cam
+	CHK(cudaMemcpy(result,dev_cost_mat,ZPlanes*ref.width*ref.height,cudaMemcpyDeviceToHost));
+	for(int l = 0; l < ref.width*ref.height*ZPlanes; l++){
+		if(result[l] != 0)
+			DEBUG("%d : %f \n",l,result[l]);
+	}
 
+	for(int z = 0; z < ZPlanes; z++){
+		host_cost_cube.at(z) = cv::Mat(ref.height, ref.width, CV_32FC1, result+(z*ref.width*ref.height));
+	}
 
 Error:
 	cudaFree(&dev_cam_vector);
 	cudaFree(&dev_cost_mat);
 	free(host_cam);
+	free(result);
 
 	return host_cost_cube;
 }

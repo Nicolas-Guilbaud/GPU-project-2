@@ -7,7 +7,7 @@ const inline std::vector<T> inverseMatrix3x3(std::vector<T> &A)
     double determinant = 0.0f;
 
     determinant = (A[0] * A[4] * A[8] + A[3] * A[7] * A[2] + A[1] * A[5] * A[6]) -
-                  (A[2] * A[4] * A[6] + A[1] * A[3] * A[8] + A[0] * A[5] * A[6]);
+                  (A[2] * A[4] * A[6] + A[1] * A[3] * A[8] + A[0] * A[5] * A[7]);
 
     std::vector<T> inv(9);
     for (int i = 0; i < 3; i++)
