@@ -8,8 +8,9 @@
 #include <cuda_runtime.h>
 #include <cuda.h>
 
-#include "../src/cam_params.hpp"
-#include "../src/constants.hpp"
+#include "../../src/cam_params.hpp"
+#include "../../src/constants.hpp"
+#include "./gpu_cam.cuh"
 
 #define DEBUG(...) fprintf(stderr,__VA_ARGS__)
 

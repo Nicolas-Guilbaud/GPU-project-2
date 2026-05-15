@@ -1,4 +1,4 @@
-#include "../kernels/main.cuh"
+#include "../kernels/naive.cuh"
 #include "cam_params.hpp"
 #include "constants.hpp"
 #include "graph.h"
@@ -283,7 +283,7 @@ int main()
 
 	// Sweeping algorithm for camera 0
 	//std::vector<cv::Mat> cost_cube = sweeping_plane(cam_vector.at(0), cam_vector, 5);
-	std::vector<cv::Mat> cost_cube = naive_sweeping_plane_gpu(cam_vector.at(0),cam_vector,5);
+	std::vector<cv::Mat> cost_cube = naive_gpu_sweeping_plane(cam_vector.at(0),cam_vector,MULTI_ELEMS,5);
 
 	// Use graph cut to generate depth map 
 	// Cleaner results, long compute time

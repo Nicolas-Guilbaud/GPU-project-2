@@ -89,11 +89,11 @@ endif()
 #    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -fopenmp -Wextra -Wpedantic -std=c++11")
 #endif()
 
-file(GLOB kernel_plane_sweep_headers
+file(GLOB_RECURSE kernel_plane_sweep_headers
     ./kernels/*.cuh
     )
 
-file(GLOB kernel_plane_sweep_src
+file(GLOB_RECURSE kernel_plane_sweep_src
     ./kernels/*.cu
     )
 
