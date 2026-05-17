@@ -27,7 +27,7 @@ enum choice{
 
 std::vector<cv::Mat> naive_gpu_sweeping_plane(
     cam const ref, 
-    std::vector<cam> const &cam_vector, 
+    std::vector<cam> const cam_vector, 
     choice choice,
     int window = 3
 );

@@ -1,4 +1,5 @@
 #pragma once
+#include "../../src/cam_params.hpp"
 #include "../../src/constants.hpp"
 
 /**
@@ -42,7 +43,7 @@ struct gpu_cam{
 /**
  * 
  */
-void convert_cam_array(std::vector<cam> src,gpu_cam* dest){
+inline void convert_cam_array(std::vector<cam> src,gpu_cam* dest){
     size_t size = src.size();
 	for(int i = 0; i < size; i++){
 		dest[i] = gpu_cam(src.at(i));
