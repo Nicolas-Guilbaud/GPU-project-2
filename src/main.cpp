@@ -282,10 +282,10 @@ int main()
 	std::vector<cam> cam_vector = read_cams("data");
 
 	// Sweeping algorithm for camera 0
-	std::vector<cv::Mat> ref = sweeping_plane(cam_vector.at(0), cam_vector, 5);
-	std::vector<cv::Mat> cost_cube = naive_gpu_sweeping_plane(cam_vector.at(0),cam_vector,MULTI_ELEMS,5);
-
-
+	std::vector<cv::Mat> cost_cube = sweeping_plane(cam_vector.at(0), cam_vector, 5);
+	//std::vector<cv::Mat> cost_cube = naive_gpu_sweeping_plane(cam_vector.at(0),cam_vector,MULTI_ELEMS,5);
+	//TODO: print chaque plane
+	/*
 	int width = cam_vector.at(0).width,
 		height = cam_vector.at(0).height;
 	//print diff for debuging purposes
@@ -299,6 +299,12 @@ int main()
 					fprintf(stderr,"(%d,%d,%d): value: %d - ref = %d",x,y,z,gpu_val,ref_val);
 			}
 		}
+	}
+	*/
+	for(int z = 0; z < ZPlanes; z++){
+		std::ostringstream stream;
+		stream << "./results/planes/depth_" << z << ".png";
+		cv::imwrite(stream.str(),cost_cube.at(z));
 	}
 
 	// Use graph cut to generate depth map 

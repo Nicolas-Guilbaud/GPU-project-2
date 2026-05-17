@@ -254,6 +254,10 @@ __global__ void muliple_elem_kernel(
     for(int cam_idx = 0; cam_idx < cam_vec_size; cam_idx++){
         gpu_cam current = cam_vector[cam_idx];
 
+        //skip ref cam
+        if(current.name == ref.name) 
+            continue;
+
         // Calculate z from ZNear, ZFar and ZPlanes (projective transformation) (zi = 0, z = ZFar)
         double z = ZNear * ZFar / (ZNear + (((double)z / (double)ZPlanes) * (ZFar - ZNear)));
         
