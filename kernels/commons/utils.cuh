@@ -13,8 +13,9 @@
             goto Error;                                              \
         }                                                            \
     } while (0)
-
-const dim3 max_threads(1024,1024,64);
+//computes exactly 512 threads in total
+// with 1024 threads/block: CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES ?
+const dim3 max_threads(32,8,2);
 
 int div_up(int x, int y){
     return (x + y - 1)/y;

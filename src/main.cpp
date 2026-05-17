@@ -282,23 +282,39 @@ int main()
 	std::vector<cam> cam_vector = read_cams("data");
 
 	// Sweeping algorithm for camera 0
-	//std::vector<cv::Mat> cost_cube = sweeping_plane(cam_vector.at(0), cam_vector, 5);
+	std::vector<cv::Mat> ref = sweeping_plane(cam_vector.at(0), cam_vector, 5);
 	std::vector<cv::Mat> cost_cube = naive_gpu_sweeping_plane(cam_vector.at(0),cam_vector,MULTI_ELEMS,5);
+
+
+	int width = cam_vector.at(0).width,
+		height = cam_vector.at(0).height;
+	//print diff for debuging purposes
+	for(int z = 0; z < ZPlanes; z++){
+		for(int y = 0; y < height; y++){
+			for(int x = 0; x < width; x++){
+				float ref_val = ref.at(z).at<float>(y,x),
+					gpu_val = cost_cube.at(z).at<float>(y,x),
+					diff =  fabs(ref_val - gpu_val);
+				if(diff != 0)
+					fprintf(stderr,"(%d,%d,%d): value: %d - ref = %d",x,y,z,gpu_val,ref_val);
+			}
+		}
+	}
 
 	// Use graph cut to generate depth map 
 	// Cleaner results, long compute time
-	cv::Mat depth = depth_estimation_by_graph_cut_sWeight(cost_cube);
+	//cv::Mat depth = depth_estimation_by_graph_cut_sWeight(cost_cube);
 
 	// Find min cost and generate depth map
 	// Faster result, low quality
-	//cv::Mat depth = find_min(cost_cube);
+	cv::Mat depth = find_min(cost_cube);
 
 
 	cv::namedWindow("Depth", cv::WINDOW_NORMAL);
 	cv::imshow("Depth", depth);
 	cv::waitKey(0);
 
-	cv::imwrite("./depth_map_gpu.png", depth);
+	cv::imwrite("./results/depth_map_gpu.png", depth);
 
 	//printf("%f", depth.at<uchar>(0, 0));
 

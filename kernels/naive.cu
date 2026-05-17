@@ -245,7 +245,7 @@ __global__ void muliple_elem_kernel(
 		y = threadIdx.y + blockIdx.y * blockDim.y,
         zIdx = threadIdx.z + blockIdx.z * blockDim.z;
         
-    if(x > ref.width || y > ref.height){
+    if(x > ref.width || y > ref.height || zIdx > ZPlanes){
         return;
     }
 
@@ -348,7 +348,7 @@ std::vector<cv::Mat> single_cam(
             dev_cost_mat
         );
         cudaDeviceSynchronize();
-        cudaMemcpy(&dev_cost_mat,&host_cost_mat,cost_mat_size,cudaMemcpyDeviceToHost);
+        cudaMemcpy(dev_cost_mat,host_cost_mat,cost_mat_size,cudaMemcpyDeviceToHost);
         
         //update minimal values on CPU
         for(int z = 0; z < ZPlanes; z++){
@@ -394,22 +394,20 @@ std::vector<cv::Mat> single_plane_cpu(
     float* dev_cost_mat;
 
     //Threads & blocks
-    dim3 N_threads(max_threads.x,max_threads.y,cam_vec_size);
+    int block_x = div_up(ref.width,max_threads.x),
+        block_y = div_up(ref.height,max_threads.y);
 
-    int block_x = div_up(ref.width,N_threads.x),
-        block_y = div_up(ref.height,N_threads.y);
-
-    dim3 N_blocks(block_x,block_y,1);
+    dim3 N_blocks(block_x,block_y,cam_vec_size);
 
     cudaMalloc(&dev_cam_vec,gpu_cam_vec_size);
     cudaMalloc(&dev_cost_mat,cost_mat_size);
 
-    cudaMemcpy(&dev_cam_vec,&cam_vector,gpu_cam_vec_size,cudaMemcpyHostToDevice);
+    cudaMemcpy(dev_cam_vec,cam_vector,gpu_cam_vec_size,cudaMemcpyHostToDevice);
 
     for(int z = 0; z < ZPlanes; z++){
         // run kernel
 
-        single_plane_proj_kernel_cpu<<<N_blocks,N_threads>>>(
+        single_plane_proj_kernel_cpu<<<N_blocks,max_threads>>>(
             ref, 
             dev_cam_vec, 
             cam_vec_size,
@@ -420,7 +418,7 @@ std::vector<cv::Mat> single_plane_cpu(
 
         //wait for kernel results
         cudaDeviceSynchronize();
-        cudaMemcpy(&host_cost_mat,&dev_cost_mat,cost_mat_size,cudaMemcpyDeviceToHost);
+        cudaMemcpy(host_cost_mat,dev_cost_mat,cost_mat_size,cudaMemcpyDeviceToHost);
         
         for(int x = 0; x < ref.width; x++){
             for(int y = 0; y < ref.height; y++){
@@ -464,22 +462,20 @@ std::vector<cv::Mat> single_plane_gpu(
     float* dev_cost_mat;
 
     //Threads & blocks
-    dim3 N_threads(max_threads.x,max_threads.y,cam_vec_size);
+    int block_x = div_up(ref.width,max_threads.x),
+        block_y = div_up(ref.height,max_threads.y);
 
-    int block_x = div_up(ref.width,N_threads.x),
-        block_y = div_up(ref.height,N_threads.y);
-
-    dim3 N_blocks(block_x,block_y,1);
+    dim3 N_blocks(block_x,block_y,cam_vec_size);
 
     cudaMalloc(&dev_cam_vec,gpu_cam_vec_size);
     cudaMalloc(&dev_cost_mat,cost_mat_size);
 
-    cudaMemcpy(&dev_cam_vec,&cam_vector,gpu_cam_vec_size,cudaMemcpyHostToDevice);
+    cudaMemcpy(dev_cam_vec,cam_vector,gpu_cam_vec_size,cudaMemcpyHostToDevice);
 
     for(int z = 0; z < ZPlanes; z++){
         // run kernel
 
-        single_plane_proj_kernel_gpu<<<N_blocks,N_threads>>>(
+        single_plane_proj_kernel_gpu<<<N_blocks,max_threads>>>(
             ref, 
             dev_cam_vec, 
             cam_vec_size,
@@ -492,7 +488,7 @@ std::vector<cv::Mat> single_plane_gpu(
         cudaDeviceSynchronize();
 
         //retrieve contiguous data
-        cudaMemcpy(&host_cost_mat,&dev_cost_mat,cost_mat_size_reduced,cudaMemcpyDeviceToHost);
+        cudaMemcpy(host_cost_mat,dev_cost_mat,cost_mat_size_reduced,cudaMemcpyDeviceToHost);
 
         result.at(z) = cv::Mat(
             ref.height, 
@@ -511,14 +507,14 @@ Error:
 }
 
 std::vector<cv::Mat> multi_elem(
-    gpu_cam const &ref, 
+    gpu_cam const ref, 
     gpu_cam const *cam_vector, 
     int cam_vec_size,
     int window = 3
 ){
     std::vector<cv::Mat> result(ZPlanes);
 
-    size_t cost_mat_size = cam_vec_size*ref.width*ref.height*sizeof(float),
+    size_t cost_mat_size = ZPlanes*ref.width*ref.height*sizeof(float),
         gpu_cam_vec_size = cam_vec_size*sizeof(gpu_cam);
 
     //CPU
@@ -537,10 +533,10 @@ std::vector<cv::Mat> multi_elem(
 
     dim3 N_blocks(block_x,block_y,block_z);
 
-    cudaMalloc(&dev_cam_vec,gpu_cam_vec_size);
-    cudaMalloc(&dev_cost_mat,cost_mat_size);
+    CHK(cudaMalloc(&dev_cam_vec,gpu_cam_vec_size));
+    CHK(cudaMalloc(&dev_cost_mat,cost_mat_size));
 
-    cudaMemcpy(&dev_cam_vec,&cam_vector,gpu_cam_vec_size,cudaMemcpyHostToDevice);
+    CHK(cudaMemcpy(dev_cam_vec,cam_vector,gpu_cam_vec_size,cudaMemcpyHostToDevice));
 
     // run kernel
     muliple_elem_kernel<<<N_blocks,max_threads>>>(
@@ -555,7 +551,7 @@ std::vector<cv::Mat> multi_elem(
     cudaDeviceSynchronize();
 
     //retrieve contiguous data
-    cudaMemcpy(&host_cost_mat,&dev_cost_mat,cost_mat_size,cudaMemcpyDeviceToHost);
+    cudaMemcpy(host_cost_mat,dev_cost_mat,cost_mat_size,cudaMemcpyDeviceToHost);
 
     for(int z = 0; z < ZPlanes; z++){
         result.at(z) = cv::Mat(
@@ -567,7 +563,7 @@ std::vector<cv::Mat> multi_elem(
     }
 
 Error:
-    free(host_cost_mat);
+    //free(host_cost_mat);
     cudaFree(dev_cam_vec);
     cudaFree(dev_cost_mat);
 
@@ -587,6 +583,8 @@ std::vector<cv::Mat> naive_gpu_sweeping_plane(
     convert_cam_array(cam_vector,gpu_cam_vec);
 
     std::vector<cv::Mat> result;
+
+    cudaSetDevice(0);
     
     switch (selection)
     {
