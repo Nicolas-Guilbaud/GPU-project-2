@@ -14,7 +14,7 @@
 
 #define DEBUG(...) fprintf(stderr,__VA_ARGS__)
 
-
+/*
 void print_mat(std::vector<double> &ref, double* obj,std::string title){
     DEBUG("%s: \n",title.c_str());
     for(int i = 0; i < ref.size();i++){
@@ -42,8 +42,6 @@ void print_cv_data(cv::Mat &ref, uint8_t* obj){
 }
 
 void check_gpu_cam(cam ref, gpu_cam obj){
-    
-    DEBUG("Names: '%s' '%s'\n",ref.name.c_str(),obj.name);
 
     print_mat(ref.p.K,obj.K,"K");
     print_mat(ref.p.K_inv,obj.K_inv,"K_inv");
@@ -58,3 +56,4 @@ void check_gpu_cam(cam ref, gpu_cam obj){
 
     print_cv_data(ref.YUV[0],obj.Y);
 }
+*/

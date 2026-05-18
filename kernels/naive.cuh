@@ -1,7 +1,4 @@
-/*
-	Naive implementation of the sweeping plane algorithm on a GPU. 
-*/
-#include "./commons/gpu_cam.cuh"
+#include "./naive/multiple_elem.cuh"
 
 /**
  * Use to select which choice to run.
@@ -26,8 +23,18 @@ enum choice{
 };
 
 std::vector<cv::Mat> naive_gpu_sweeping_plane(
-    cam const ref, 
+    int const ref_idx, 
     std::vector<cam> const cam_vector, 
     choice choice,
     int window = 3
-);
+){
+    std::vector<cv::Mat> result;
+    switch(choice){
+        case MULTI_ELEMS:
+            result = multi_elem(ref_idx,cam_vector,window);
+            break;
+        default:
+            break;
+    }
+    return result;
+}
