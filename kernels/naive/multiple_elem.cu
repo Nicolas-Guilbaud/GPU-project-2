@@ -204,7 +204,7 @@ std::vector<cv::Mat> multi_elem(
             width, 
             CV_32FC1,
             host_cost_zi
-        );
+        ).clone();
     }
 Error:
     //K
@@ -220,6 +220,8 @@ Error:
     cudaFree(dev_Y_img);
     //cost_mat
     cudaFree(dev_cost_mat);
+
+    free(host_cost_mat);
 
     return result;
 

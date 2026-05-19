@@ -11,6 +11,10 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/opencv.hpp>
 
+#include <chrono>
+#include <iostream>
+#include <fstream>
+
 #include <string>
 
 #define SHRT_MAX 32767
@@ -281,16 +285,52 @@ int main()
 	// Read cams
 	std::vector<cam> cam_vector = read_cams("data");
 
+	float cpu_time, 
+		naive_multi_elems, 
+		naive_single_cam, 
+		naive_single_plane;
+
 	// Sweeping algorithm for camera 0
-	//std::vector<cv::Mat> cost_cube = sweeping_plane(cam_vector.at(0), cam_vector, 5);
-	std::vector<cv::Mat> cost_cube = naive_gpu_sweeping_plane(0,cam_vector,SINGLE_PLANE,5);
-	
-	//save mat_cost as 256 images
-	for(int z = 0; z < ZPlanes; z++){
-		std::ostringstream stream;
-		stream << "./results/planes/depth_" << z << ".png";
-		cv::imwrite(stream.str(),cost_cube.at(z));
-	}
+
+	//save runtime in csv file:
+	std::ofstream runtime_file("./results/runtime.csv");
+
+	/* CPU */
+	auto start = std::chrono::high_resolution_clock::now();
+	std::vector<cv::Mat> cost_cube = sweeping_plane(cam_vector.at(0), cam_vector, 5);
+	auto end = std::chrono::high_resolution_clock::now();
+	cpu_time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+	runtime_file <<  "CPU," << cpu_time << std::endl;
+	/* naive GPU */
+
+	//multi elems
+	start = std::chrono::high_resolution_clock::now();
+	cost_cube = naive_gpu_sweeping_plane(0, cam_vector, MULTI_ELEMS, 5);
+	end = std::chrono::high_resolution_clock::now();
+	naive_multi_elems = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+	runtime_file <<  "multi_elems," << naive_multi_elems << std::endl;
+	//single cam
+	start = std::chrono::high_resolution_clock::now();
+	cost_cube = naive_gpu_sweeping_plane(0, cam_vector, SINGLE_CAMERA, 5);
+	end = std::chrono::high_resolution_clock::now();
+	naive_single_cam = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+	runtime_file <<  "single_cam," << naive_single_cam << std::endl;
+
+	//single plane
+	start = std::chrono::high_resolution_clock::now();
+	cost_cube = naive_gpu_sweeping_plane(0, cam_vector, SINGLE_PLANE, 5);
+	end = std::chrono::high_resolution_clock::now();
+	naive_single_plane = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+	runtime_file <<  "single_plane," << naive_single_plane << std::endl;
+
+	runtime_file.close();
+
+	// save mat_cost as 256 images -> used for debug purposes
+	// for(int z = 0; z < ZPlanes; z++){
+	// 	std::ostringstream stream;
+	// 	stream << "./results/planes/depth_" << z << ".png";
+	// 	cv::imwrite(stream.str(),cost_cube.at(z));
+	// }
 
 	// Use graph cut to generate depth map 
 	// Cleaner results, long compute time
@@ -306,8 +346,6 @@ int main()
 	cv::waitKey(0);
 
 	cv::imwrite("./results/depth_map_gpu.png", depth);
-
-	//printf("%f", depth.at<uchar>(0, 0));
 
 	return 0;
 }

@@ -234,7 +234,7 @@ std::vector<cv::Mat> single_plane(
             width, 
             CV_32FC1,
             host_cost_zi
-        );
+        ).clone();
 
     }
 
@@ -252,6 +252,8 @@ Error:
     cudaFree(dev_Y_img);
     //cost_mat
     cudaFree(dev_cost_mat);
+
+    free(host_cost_mat);
 
     return result;
 

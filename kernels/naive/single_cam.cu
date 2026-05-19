@@ -193,7 +193,7 @@ std::vector<cv::Mat> single_cam(
             width, 
             CV_32FC1,
             host_cost_zi
-        );
+        ).clone();
     }
 
 Error:
@@ -212,6 +212,7 @@ Error:
 
     //free host pointers
     free(host_cost_mat);
+    free(host_min_cost_mat);
 
     return result;
 }
