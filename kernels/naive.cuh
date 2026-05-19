@@ -1,4 +1,5 @@
 #include "./naive/multiple_elem.cuh"
+#include "./naive/single_cam.cuh"
 
 /**
  * Use to select which choice to run.
@@ -32,6 +33,9 @@ std::vector<cv::Mat> naive_gpu_sweeping_plane(
     switch(choice){
         case MULTI_ELEMS:
             result = multi_elem(ref_idx,cam_vector,window);
+            break;
+        case SINGLE_CAMERA:
+            result = single_cam(ref_idx,cam_vector,window);
             break;
         default:
             break;
