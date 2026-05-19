@@ -283,7 +283,7 @@ int main()
 
 	// Sweeping algorithm for camera 0
 	//std::vector<cv::Mat> cost_cube = sweeping_plane(cam_vector.at(0), cam_vector, 5);
-	std::vector<cv::Mat> cost_cube = naive_gpu_sweeping_plane(0,cam_vector,SINGLE_CAMERA,5);
+	std::vector<cv::Mat> cost_cube = naive_gpu_sweeping_plane(0,cam_vector,SINGLE_PLANE,5);
 	
 	//save mat_cost as 256 images
 	for(int z = 0; z < ZPlanes; z++){

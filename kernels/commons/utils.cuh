@@ -15,7 +15,8 @@
     } while (0)
 //computes exactly 512 threads in total
 // with 1024 threads/block: CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES ?
-const dim3 max_threads(32,8,2);
+const dim3 max_threads_512(32,8,2);
+const dim3 max_threads_1024(32,32);
 
 //4D access of a flattened 1D array
 #define IDX4(x,y,z,k) (int) ((x) + ref.width * (y + ref.height * (z + ZPlanes * (k))))

@@ -117,9 +117,9 @@ std::vector<cv::Mat> single_cam(
 
     //threads & blocks:
 
-    int block_x = divup(width,max_threads.x),
-        block_y = divup(height,max_threads.y),
-        block_z = divup(ZPlanes,max_threads.z);
+    int block_x = divup(width,max_threads_512.x),
+        block_y = divup(height,max_threads_512.y),
+        block_z = divup(ZPlanes,max_threads_512.z);
     
     dim3 N_blocks(block_x,block_y,block_z);
 
@@ -160,7 +160,7 @@ std::vector<cv::Mat> single_cam(
 
         CHK(cudaMemcpy(current_Y_img,curr.YUV[0].data,width*height*sizeof(uint8_t),cudaMemcpyHostToDevice));
         //run kernel
-        single_cam_kernel<<<N_blocks,max_threads>>>(
+        single_cam_kernel<<<N_blocks,max_threads_512>>>(
             K,K_inv,
             R,R_inv,
             t,t_inv,
