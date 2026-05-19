@@ -1,4 +1,5 @@
 #include "../kernels/naive.cuh"
+#include "../kernels/main.cuh"
 #include "cam_params.hpp"
 #include "constants.hpp"
 #include "graph.h"
@@ -280,15 +281,16 @@ cv::Mat depth_estimation_by_graph_cut_sWeight(std::vector<cv::Mat> const& cost_c
 	return depth;
 }
 
-int main()
-{
-	// Read cams
-	std::vector<cam> cam_vector = read_cams("data");
+std::vector<cv::Mat> measure_runtime(
+	int ref_idx,
+	std::vector<cam> cam_vector,
+	int window = 3
+){
 
 	float cpu_time, 
-		naive_multi_elems, 
-		naive_single_cam, 
-		naive_single_plane;
+			naive_multi_elems, 
+			naive_single_cam, 
+			naive_single_plane;
 
 	// Sweeping algorithm for camera 0
 
@@ -297,7 +299,7 @@ int main()
 
 	/* CPU */
 	auto start = std::chrono::high_resolution_clock::now();
-	std::vector<cv::Mat> cost_cube = sweeping_plane(cam_vector.at(0), cam_vector, 5);
+	std::vector<cv::Mat> cost_cube = sweeping_plane(cam_vector.at(ref_idx), cam_vector, window);
 	auto end = std::chrono::high_resolution_clock::now();
 	cpu_time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 	runtime_file <<  "CPU," << cpu_time << std::endl;
@@ -305,25 +307,37 @@ int main()
 
 	//multi elems
 	start = std::chrono::high_resolution_clock::now();
-	cost_cube = naive_gpu_sweeping_plane(0, cam_vector, MULTI_ELEMS, 5);
+	cost_cube = naive_gpu_sweeping_plane(ref_idx, cam_vector, MULTI_ELEMS, window);
 	end = std::chrono::high_resolution_clock::now();
 	naive_multi_elems = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 	runtime_file <<  "multi_elems," << naive_multi_elems << std::endl;
 	//single cam
 	start = std::chrono::high_resolution_clock::now();
-	cost_cube = naive_gpu_sweeping_plane(0, cam_vector, SINGLE_CAMERA, 5);
+	cost_cube = naive_gpu_sweeping_plane(ref_idx, cam_vector, SINGLE_CAMERA, window);
 	end = std::chrono::high_resolution_clock::now();
 	naive_single_cam = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 	runtime_file <<  "single_cam," << naive_single_cam << std::endl;
 
 	//single plane
 	start = std::chrono::high_resolution_clock::now();
-	cost_cube = naive_gpu_sweeping_plane(0, cam_vector, SINGLE_PLANE, 5);
+	cost_cube = naive_gpu_sweeping_plane(ref_idx, cam_vector, SINGLE_PLANE, window);
 	end = std::chrono::high_resolution_clock::now();
 	naive_single_plane = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 	runtime_file <<  "single_plane," << naive_single_plane << std::endl;
 
 	runtime_file.close();
+
+	return cost_cube;
+
+}
+
+int main()
+{
+	// Read cams
+	std::vector<cam> cam_vector = read_cams("data");
+
+	//std::vector<cv::Mat> cost_cube = measure_runtime(0,cam_vector,5);
+	std::vector<cv::Mat> cost_cube = naive_gpu_sweeping_plane(0,cam_vector,MULTI_ELEMS,5);
 
 	// save mat_cost as 256 images -> used for debug purposes
 	// for(int z = 0; z < ZPlanes; z++){
@@ -338,14 +352,14 @@ int main()
 
 	// Find min cost and generate depth map
 	// Faster result, low quality
-	cv::Mat depth = find_min(cost_cube);
+	// cv::Mat depth = find_min(cost_cube);
 
 
-	cv::namedWindow("Depth", cv::WINDOW_NORMAL);
-	cv::imshow("Depth", depth);
-	cv::waitKey(0);
+	// cv::namedWindow("Depth", cv::WINDOW_NORMAL);
+	// cv::imshow("Depth", depth);
+	// cv::waitKey(0);
 
-	cv::imwrite("./results/depth_map_gpu.png", depth);
+	// cv::imwrite("./results/depth_map_gpu.png", depth);
 
 	return 0;
 }
