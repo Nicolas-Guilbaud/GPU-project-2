@@ -8,7 +8,7 @@ __constant__ double K[9*CAM_VEC_SIZE],K_inv[9*CAM_VEC_SIZE],
                     R[9*CAM_VEC_SIZE],R_inv[9*CAM_VEC_SIZE],
                     t[3*CAM_VEC_SIZE],t_inv[3*CAM_VEC_SIZE];
 
-__global__ void optimized_kernel(
+__global__ void constant_mem_kernel(
     const int ref_idx,
 
     const uint8_t *Y_img,
@@ -116,15 +116,7 @@ std::vector<cv::Mat> constant_mem_sweeping_plane(
     float* host_cost_mat = (float*) malloc(cost_mat_size);
 
     //GPU
-    double *dev_K, 
-        *dev_K_inv,
-        *dev_R,
-        *dev_R_inv,
-        *dev_t,
-        *dev_t_inv;
-
     uint8_t *dev_Y_img;
-
     float* dev_cost_mat; //output
 
     //Threads & blocks
@@ -136,18 +128,8 @@ std::vector<cv::Mat> constant_mem_sweeping_plane(
     dim3 N_blocks(block_x,block_y,block_z);
 
     //init GPU pointers
-    CHK(cudaMalloc(&dev_K,cam_vec_size*mat3x3));
-    CHK(cudaMalloc(&dev_K_inv,cam_vec_size*mat3x3));
-    CHK(cudaMalloc(&dev_R,cam_vec_size*mat3x3));
-    CHK(cudaMalloc(&dev_R_inv,cam_vec_size*mat3x3));
-
-    CHK(cudaMalloc(&dev_t,cam_vec_size*mat3x1));
-    CHK(cudaMalloc(&dev_t_inv,cam_vec_size*mat3x1));
-
     CHK(cudaMalloc(&dev_Y_img,cam_vec_size*Y_img));
-
-    //output
-    CHK(cudaMalloc(&dev_cost_mat,cost_mat_size));
+    CHK(cudaMalloc(&dev_cost_mat,cost_mat_size)); //output
 
     //cpy values to pointers
     for(int k = 0; k < cam_vec_size; k++){
@@ -169,7 +151,7 @@ std::vector<cv::Mat> constant_mem_sweeping_plane(
     }
 
     // run kernel
-    optimized_kernel<<<N_blocks,max_threads_512>>>(
+    constant_mem_kernel<<<N_blocks,max_threads_512>>>(
         ref_idx,        // ref
         dev_Y_img,      // Y
         width,          // img size
@@ -197,15 +179,6 @@ std::vector<cv::Mat> constant_mem_sweeping_plane(
         ).clone();
     }
 Error:
-    //K
-    cudaFree(dev_K);
-    cudaFree(dev_K_inv);
-    //R
-    cudaFree(dev_R);
-    cudaFree(dev_R_inv);
-    //t
-    cudaFree(dev_t);
-    cudaFree(dev_t_inv);
     //Y
     cudaFree(dev_Y_img);
     //cost_mat
