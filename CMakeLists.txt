@@ -104,7 +104,7 @@ add_library(${PROJECT_NAME}CUDA ${kernel_plane_sweep_headers} ${kernel_plane_swe
 set_property(TARGET ${PROJECT_NAME}CUDA PROPERTY
                 MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
                 )
-#target_compile_options(${PROJECT_NAME}CUDA PRIVATE "$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:CUDA>>:-G;-lineinfo;--source-in-ptx;>")
+target_compile_options(${PROJECT_NAME}CUDA PRIVATE "$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:CUDA>>:-G;-lineinfo;--source-in-ptx;>")
 
 
 
@@ -135,7 +135,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
                 CUDA_RUNTIME_LIBRARY Static
                 CUDA_RESOLVE_DEVICE_SYMBOLS ON
                 )
-#target_compile_options(${PROJECT_NAME} PRIVATE "$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:CUDA>>:-g -G;-lineinfo;--source-in-ptx;>")
+target_compile_options(${PROJECT_NAME} PRIVATE "$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:CUDA>>:-g -G;-lineinfo;--source-in-ptx;>")
 
 
 target_include_directories(${PROJECT_NAME} PUBLIC

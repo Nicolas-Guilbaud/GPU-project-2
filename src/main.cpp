@@ -2,6 +2,7 @@
 #include "../kernels/main.cuh"
 #include "../kernels/optimized/constant_mem.cuh"
 #include "../kernels/optimized/texture_mem.cuh"
+#include "../kernels/optimized/shared_mem.cuh"
 
 #include "cam_params.hpp"
 #include "constants.hpp"
@@ -339,6 +340,13 @@ std::vector<cv::Mat> measure_runtime(
 	duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 	runtime_file << "texture_mem," << duration << std::endl;
 
+	//shared memory
+	start = std::chrono::high_resolution_clock::now();
+	cost_cube = shared_sweeping_plane(0, cam_vector, 5);
+	end = std::chrono::high_resolution_clock::now();
+	duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+	runtime_file << "shared_mem," << duration << std::endl;
+
 	runtime_file.close();
 
 	return cost_cube;
@@ -359,6 +367,13 @@ int main()
 	auto end = std::chrono::high_resolution_clock::now();
 	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 	std::cout << "texture mem - Duration: " << duration << std::endl;
+
+	//shared memory
+	start = std::chrono::high_resolution_clock::now();
+	cost_cube = shared_sweeping_plane(0, cam_vector, 5);
+	end = std::chrono::high_resolution_clock::now();
+	duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+	std::cout << "shared_mem - Duration: " << duration << std::endl;
 
 	// save mat_cost as 256 images -> used for debug purposes
 	for(int z = 0; z < ZPlanes; z++){
