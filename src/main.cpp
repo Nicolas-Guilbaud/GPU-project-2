@@ -358,29 +358,36 @@ int main()
 	// Read cams
 	std::vector<cam> cam_vector = read_cams("data");
 
-	//std::vector<cv::Mat> cost_cube = measure_runtime(0,cam_vector,5);
-	//std::vector<cv::Mat> cost_cube = constant_mem_sweeping_plane(0,cam_vector,5);
+	// std::vector<cv::Mat> cost_cube = measure_runtime(0,cam_vector,5);
+	// std::vector<cv::Mat> cost_cube = texture_sweeping_plane(0,cam_vector,5);
 
 	//texture memory
-	auto start = std::chrono::high_resolution_clock::now();
-	auto cost_cube = texture_sweeping_plane(0, cam_vector, 5);
-	auto end = std::chrono::high_resolution_clock::now();
-	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-	std::cout << "texture mem - Duration: " << duration << std::endl;
+	// auto start = std::chrono::high_resolution_clock::now();
+	// auto cost_cube = texture_sweeping_plane(0, cam_vector, 5);
+	// auto end = std::chrono::high_resolution_clock::now();
+	// auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+	// std::cout << "texture mem - Duration: " << duration << std::endl;
 
-	//shared memory
-	start = std::chrono::high_resolution_clock::now();
-	cost_cube = shared_sweeping_plane(0, cam_vector, 5);
-	end = std::chrono::high_resolution_clock::now();
-	duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-	std::cout << "shared_mem - Duration: " << duration << std::endl;
+	// //shared memory
+	// start = std::chrono::high_resolution_clock::now();
+	// cost_cube = texture2_sweeping_plane(0, cam_vector, 5);
+	// end = std::chrono::high_resolution_clock::now();
+	// duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+	// std::cout << "texture mem 2 - Duration: " << duration << std::endl;
+
+	//profiling
+	// auto start = std::chrono::high_resolution_clock::now();
+	auto cost_cube = naive_gpu_sweeping_plane(0, cam_vector,MULTI_ELEMS ,5);
+	// auto end = std::chrono::high_resolution_clock::now();
+	// auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+	// std::cout << "Duration: " << duration << std::endl;
 
 	// save mat_cost as 256 images -> used for debug purposes
-	for(int z = 0; z < ZPlanes; z++){
-		std::ostringstream stream;
-		stream << "./results/planes/depth_" << z << ".png";
-		cv::imwrite(stream.str(),cost_cube.at(z));
-	}
+	// for(int z = 0; z < ZPlanes; z++){
+	// 	std::ostringstream stream;
+	// 	stream << "./results/planes/depth_" << z << ".png";
+	// 	cv::imwrite(stream.str(),cost_cube.at(z));
+	// }
 
 	// Use graph cut to generate depth map 
 	// Cleaner results, long compute time
@@ -388,14 +395,14 @@ int main()
 
 	// Find min cost and generate depth map
 	// Faster result, low quality
-	cv::Mat depth = find_min(cost_cube);
+	// cv::Mat depth = find_min(cost_cube);
 
 
-	cv::namedWindow("Depth", cv::WINDOW_NORMAL);
-	cv::imshow("Depth", depth);
-	cv::waitKey(0);
+	// cv::namedWindow("Depth", cv::WINDOW_NORMAL);
+	// cv::imshow("Depth", depth);
+	// cv::waitKey(0);
 
-	cv::imwrite("./results/depth_map_gpu.png", depth);
+	// cv::imwrite("./results/depth_map_gpu.png", depth);
 
 	return 0;
 }

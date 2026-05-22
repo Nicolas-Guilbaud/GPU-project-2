@@ -1,6 +1,6 @@
 #include "shared_mem.cuh"
 
-#define divup(x,y) (x+y-1/y)
+#define divup(x,y) (((x)+(y)-1)/(y))
 #define SHARED_IDX(x,y,z) ((x) + width*((y) + height*(z)))
 
 #define CAM_VEC_SIZE 4

@@ -1,6 +1,6 @@
 #include "single_plane.cuh"
 
-#define divup(x,y) (x+y-1/y)
+#define divup(x,y) (((x)+(y)-1)/(y))
 
 __global__ void single_plane_convol_kernel(
     const int ref_idx,

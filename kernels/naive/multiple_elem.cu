@@ -1,7 +1,7 @@
 #include "multiple_elem.cuh"
 #define IDX3i(row,col,idx) (int) ((col + (row*width)) + (width*height*idx))
 
-#define divup(x,y) (x+y-1/y)
+#define divup(x,y) (((x)+(y)-1)/(y))
 
 __global__ void muliple_elem_kernel(
     const int ref_idx,

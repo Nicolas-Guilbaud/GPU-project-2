@@ -1,6 +1,6 @@
 #include "constant_mem.cuh"
 
-#define divup(x,y) (x+y-1/y)
+#define divup(x,y) (((x)+(y)-1)/(y))
 
 #define CAM_VEC_SIZE 4
 

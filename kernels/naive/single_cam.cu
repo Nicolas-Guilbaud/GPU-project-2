@@ -1,5 +1,5 @@
 #include "single_cam.cuh"
-#define divup(x,y) (x+y-1/y)
+#define divup(x,y) (((x)+(y)-1)/(y))
 
 
 __global__ void single_cam_kernel(
