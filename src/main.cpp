@@ -312,12 +312,19 @@ std::vector<cv::Mat> measure_runtime(
 	end = std::chrono::high_resolution_clock::now();
 	duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 	runtime_file <<  "multi_elems," << duration << std::endl;
-	//single cam
+	//single cam CPU
 	start = std::chrono::high_resolution_clock::now();
-	cost_cube = naive_gpu_sweeping_plane(ref_idx, cam_vector, SINGLE_CAMERA, window);
+	cost_cube = naive_gpu_sweeping_plane(ref_idx, cam_vector, SINGLE_CAMERA_CPU, window);
 	end = std::chrono::high_resolution_clock::now();
 	duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-	runtime_file <<  "single_cam," << duration << std::endl;
+	runtime_file <<  "single_cam_cpu," << duration << std::endl;
+
+	//single cam GPU
+	start = std::chrono::high_resolution_clock::now();
+	cost_cube = naive_gpu_sweeping_plane(ref_idx, cam_vector, SINGLE_CAMERA_GPU, window);
+	end = std::chrono::high_resolution_clock::now();
+	duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+	runtime_file <<  "single_cam_gpu," << duration << std::endl;
 
 	//single plane
 	start = std::chrono::high_resolution_clock::now();
@@ -363,21 +370,21 @@ int main()
 
 	//texture memory
 	// auto start = std::chrono::high_resolution_clock::now();
-	// auto cost_cube = texture_sweeping_plane(0, cam_vector, 5);
+	// auto cost_cube = naive_gpu_sweeping_plane(0, cam_vector, SINGLE_CAMERA, 5);
 	// auto end = std::chrono::high_resolution_clock::now();
 	// auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-	// std::cout << "texture mem - Duration: " << duration << std::endl;
-
-	// //shared memory
+	// std::cout << "single cam - Duration: " << duration << std::endl;
+	
+	//shared memory
 	// start = std::chrono::high_resolution_clock::now();
-	// cost_cube = texture2_sweeping_plane(0, cam_vector, 5);
+	// cost_cube = naive_gpu_sweeping_plane(0, cam_vector, MULTI_ELEMS, 5);
 	// end = std::chrono::high_resolution_clock::now();
 	// duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-	// std::cout << "texture mem 2 - Duration: " << duration << std::endl;
+	// std::cout << "multi elem - Duration: " << duration << std::endl;
 
 	//profiling
 	// auto start = std::chrono::high_resolution_clock::now();
-	auto cost_cube = naive_gpu_sweeping_plane(0, cam_vector,MULTI_ELEMS ,5);
+	auto cost_cube = naive_gpu_sweeping_plane(0, cam_vector,SINGLE_CAMERA_GPU ,5);
 	// auto end = std::chrono::high_resolution_clock::now();
 	// auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 	// std::cout << "Duration: " << duration << std::endl;
