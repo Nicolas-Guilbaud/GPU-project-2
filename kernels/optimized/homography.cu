@@ -1,15 +1,12 @@
-#include "single_cam_in_place.cuh"
+#include "homography.cuh"
+
 #define divup(x,y) (((x)+(y)-1)/(y))
 
+__global__ void single_cam_homography_kernel(
 
-__global__ void single_cam_gpu_kernel(
-
+    const double* A,
+    const double* B,
     const double* K,
-    const double* K_inv, //ref
-    const double* R,
-    const double* R_inv, //ref
-    const double* t,
-    const double* t_inv, //ref
 
     const uint8_t* ref_Y_img, //ref
     const uint8_t* current_Y_img,
@@ -29,27 +26,14 @@ __global__ void single_cam_gpu_kernel(
     }
 
     // Calculate z from ZNear, ZFar and ZPlanes (projective transformation) (zi = 0, z = ZFar)
-    double z = ZNear * ZFar / (ZNear + (((double)zIdx / (double)ZPlanes) * (ZFar - ZNear)));
+    float z = ZNear * ZFar / (ZNear + (((float)zIdx / (float)ZPlanes) * (ZFar - ZNear)));
 
-    // 2D ref camera point to 3D in ref camera coordinates (p * K_inv)
-    double X_ref = (K_inv[0] * x + K_inv[1] * y + K_inv[2]) * z;
-    double Y_ref = (K_inv[3] * x + K_inv[4] * y + K_inv[5]) * z;
-    double Z_ref = (K_inv[6] * x + K_inv[7] * y + K_inv[8]) * z;
+    float X_proj = ((float) A[0]*x + (float) A[1]*y + (float) A[2])*z - (float) B[0],
+        Y_proj = ((float) A[3]*x + (float) A[4]*y + (float) A[5])*z - (float) B[1],
+        Z_proj = ((float) A[6]*x + (float) A[7]*y + (float) A[8])*z - (float) B[2];
 
-    // 3D in ref camera coordinates to 3D world
-    double X = R_inv[0] * X_ref + R_inv[1] * Y_ref + R_inv[2] * Z_ref - t_inv[0];
-    double Y = R_inv[3] * X_ref + R_inv[4] * Y_ref + R_inv[5] * Z_ref - t_inv[1];
-    double Z = R_inv[6] * X_ref + R_inv[7] * Y_ref + R_inv[8] * Z_ref - t_inv[2];
-
-    // 3D world to projected camera 3D coordinates
-    double X_proj = R[0] * X + R[1] * Y + R[2] * Z - t[0];
-    double Y_proj = R[3] * X + R[4] * Y + R[5] * Z - t[1];
-    double Z_proj = R[6] * X + R[7] * Y + R[8] * Z - t[2];
-
-    // Projected camera 3D coordinates to projected camera 2D coordinates
-    double x_proj = (K[0] * X_proj / Z_proj + K[1] * Y_proj / Z_proj + K[2]);
-    double y_proj = (K[3] * X_proj / Z_proj + K[4] * Y_proj / Z_proj + K[5]);
-    double z_proj = Z_proj;
+    float x_proj = (float) K[0]* X_proj / Z_proj + (float) K[1]*Y_proj/Z_proj + (float) K[2],
+        y_proj = (float) K[3] * X_proj / Z_proj + (float) K[4]*Y_proj/Z_proj + (float) K[5];
     
     x_proj = x_proj < 0 || x_proj >= width ? 0 : roundf(x_proj);
     y_proj = y_proj < 0 || y_proj >= height ? 0 : roundf(y_proj);
@@ -89,7 +73,7 @@ __global__ void single_cam_gpu_kernel(
     cost_mat[(x + width*(y + height*(zIdx)))] = fminf(cost,min);
 }
 
-std::vector<cv::Mat> single_cam_gpu(
+std::vector<cv::Mat> single_cam_homography_gpu(
     int ref_idx,
     std::vector<cam> const cam_vector,
     int window
@@ -102,11 +86,11 @@ std::vector<cv::Mat> single_cam_gpu(
 
     int cam_vec_size = cam_vector.size();
 
-    //CPU
+    //CPUrows
     std::vector<float> host_cost_mat(width*height*ZPlanes,255.f);
+    double resA[9],resB[3];
     //GPU
-    double *K,*R,*t,            //current
-        *K_inv,*R_inv,*t_inv;   //ref
+    double *dev_A,*dev_B, *dev_K;
     
     float *dev_cost_mat;        //output
     uint8_t *ref_Y_img, *current_Y_img;
@@ -123,20 +107,15 @@ std::vector<cv::Mat> single_cam_gpu(
 
     //init pointers
     CHK(cudaMalloc(&dev_cost_mat,width*height*ZPlanes*sizeof(float)));
+    CHK(cudaMalloc(&dev_A,9*sizeof(double)));
+    CHK(cudaMalloc(&dev_B,3*sizeof(double)));
+    CHK(cudaMalloc(&dev_K,9*sizeof(double)));
 
-    CHK(cudaMalloc(&K,9*sizeof(double)));
-    CHK(cudaMalloc(&K_inv,9*sizeof(double)));
-    CHK(cudaMalloc(&R,9*sizeof(double)));
-    CHK(cudaMalloc(&R_inv,9*sizeof(double)));
-    CHK(cudaMalloc(&t,3*sizeof(double)));
-    CHK(cudaMalloc(&t_inv,3*sizeof(double)));
+
     CHK(cudaMalloc(&ref_Y_img,width*height*sizeof(uint8_t)));
     CHK(cudaMalloc(&current_Y_img,width*height*sizeof(uint8_t)));
 
     //cpy ref cam
-    CHK(cudaMemcpy(K_inv,&ref.p.K_inv[0],9*sizeof(double),cudaMemcpyHostToDevice));
-    CHK(cudaMemcpy(R_inv,&ref.p.R_inv[0],9*sizeof(double),cudaMemcpyHostToDevice));
-    CHK(cudaMemcpy(t_inv,&ref.p.t_inv[0],3*sizeof(double),cudaMemcpyHostToDevice));
     CHK(cudaMemcpy(ref_Y_img,ref.YUV[0].data,width*height*sizeof(uint8_t),cudaMemcpyHostToDevice));
 
     //init cost mat:
@@ -151,18 +130,30 @@ std::vector<cv::Mat> single_cam_gpu(
 
         cam curr = cam_vector.at(cam_idx);
 
-        //cpy content of current camera
-        CHK(cudaMemcpy(K,&curr.p.K[0],9*sizeof(double),cudaMemcpyHostToDevice));
-        CHK(cudaMemcpy(R,&curr.p.R[0],9*sizeof(double),cudaMemcpyHostToDevice));
-        CHK(cudaMemcpy(t,&curr.p.t[0],3*sizeof(double),cudaMemcpyHostToDevice));
+        /* matmult on CPU: */
+        cv::Mat K = cv::Mat(3,3,CV_64F,&curr.p.K[0]), 
+            K_inv = cv::Mat(3,3,CV_64F,&ref.p.K_inv[0]), 
+            R = cv::Mat(3,3,CV_64F,&curr.p.R[0]), 
+            R_inv = cv::Mat(3,3,CV_64F,&ref.p.R_inv[0]), 
+            t = cv::Mat(3,1,CV_64F,&curr.p.t[0]), 
+            t_inv = cv::Mat(3,1,CV_64F,&ref.p.t_inv[0]);
 
+        cv::Mat host_A = R*R_inv*K_inv,
+            host_B = (R*t_inv) + t;
 
+        double *a = host_A.ptr<double>(),
+            *b = host_B.ptr<double>(),
+            *host_K = K.ptr<double>();
+
+        //copy homogeneous matrices
+        cudaMemcpy(dev_A,a,9*sizeof(double),cudaMemcpyHostToDevice);
+        cudaMemcpy(dev_B,b,3*sizeof(double),cudaMemcpyHostToDevice);
+        cudaMemcpy(dev_K,host_K,9*sizeof(double),cudaMemcpyHostToDevice);
+        
         CHK(cudaMemcpy(current_Y_img,curr.YUV[0].data,width*height*sizeof(uint8_t),cudaMemcpyHostToDevice));
         //run kernel
-        single_cam_gpu_kernel<<<N_blocks,max_threads_512>>>(
-            K,K_inv,
-            R,R_inv,
-            t,t_inv,
+        single_cam_homography_kernel<<<N_blocks,max_threads_512>>>(
+            dev_A,dev_B,dev_K,
             ref_Y_img,
             current_Y_img,
             width,
@@ -192,12 +183,9 @@ std::vector<cv::Mat> single_cam_gpu(
 Error:
 
     //free cuda pointers
-    cudaFree(K);
-    cudaFree(K_inv);
-    cudaFree(R);
-    cudaFree(R_inv);
-    cudaFree(t);
-    cudaFree(t_inv);
+    cudaFree(dev_A);
+    cudaFree(dev_B);
+    cudaFree(dev_K);
     cudaFree(ref_Y_img);
     cudaFree(current_Y_img);
 

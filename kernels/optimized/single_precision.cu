@@ -33,23 +33,23 @@ __global__ void single_cam_single_precision_kernel(
     float z = ZNear * ZFar / (ZNear + (((float)zIdx / (float)ZPlanes) * (ZFar - ZNear)));
 
     // 2D ref camera point to 3D in ref camera coordinates (p * K_inv)
-    float X_ref = (K_inv[0] * x + K_inv[1] * y + K_inv[2]) * z;
-    float Y_ref = (K_inv[3] * x + K_inv[4] * y + K_inv[5]) * z;
-    float Z_ref = (K_inv[6] * x + K_inv[7] * y + K_inv[8]) * z;
+    float X_ref = ((float) K_inv[0] * x + (float) K_inv[1] * y + (float) K_inv[2]) * z;
+    float Y_ref = ((float) K_inv[3] * x + (float) K_inv[4] * y + (float) K_inv[5]) * z;
+    float Z_ref = ((float) K_inv[6] * x + (float) K_inv[7] * y + (float) K_inv[8]) * z;
 
     // 3D in ref camera coordinates to 3D world
-    float X = R_inv[0] * X_ref + R_inv[1] * Y_ref + R_inv[2] * Z_ref - t_inv[0];
-    float Y = R_inv[3] * X_ref + R_inv[4] * Y_ref + R_inv[5] * Z_ref - t_inv[1];
-    float Z = R_inv[6] * X_ref + R_inv[7] * Y_ref + R_inv[8] * Z_ref - t_inv[2];
+    float X = (float) R_inv[0] * X_ref + (float) R_inv[1] * Y_ref + (float) R_inv[2] * Z_ref - (float) t_inv[0];
+    float Y = (float) R_inv[3] * X_ref + (float) R_inv[4] * Y_ref + (float) R_inv[5] * Z_ref - (float) t_inv[1];
+    float Z = (float) R_inv[6] * X_ref + (float) R_inv[7] * Y_ref + (float) R_inv[8] * Z_ref - (float) t_inv[2];
 
     // 3D world to projected camera 3D coordinates
-    float X_proj = R[0] * X + R[1] * Y + R[2] * Z - t[0];
-    float Y_proj = R[3] * X + R[4] * Y + R[5] * Z - t[1];
-    float Z_proj = R[6] * X + R[7] * Y + R[8] * Z - t[2];
+    float X_proj = (float) R[0] * X + (float) R[1] * Y + (float) R[2] * Z - (float) t[0];
+    float Y_proj = (float) R[3] * X + (float) R[4] * Y + (float) R[5] * Z - (float) t[1];
+    float Z_proj = (float) R[6] * X + (float) R[7] * Y + (float) R[8] * Z - (float) t[2];
 
     // Projected camera 3D coordinates to projected camera 2D coordinates
-    float x_proj = (K[0] * X_proj / Z_proj + K[1] * Y_proj / Z_proj + K[2]);
-    float y_proj = (K[3] * X_proj / Z_proj + K[4] * Y_proj / Z_proj + K[5]);
+    float x_proj = ((float) K[0] * X_proj / Z_proj + (float) K[1] * Y_proj / Z_proj + (float) K[2]);
+    float y_proj = ((float) K[3] * X_proj / Z_proj + (float) K[4] * Y_proj / Z_proj + (float) K[5]);
     float z_proj = Z_proj;
     
     x_proj = x_proj < 0 || x_proj >= width ? 0 : roundf(x_proj);
@@ -104,7 +104,8 @@ std::vector<cv::Mat> single_cam_fp32_gpu(
     int cam_vec_size = cam_vector.size();
 
     //CPU
-    float *host_cost_mat = new float[width*height*ZPlanes] {255.f};
+    std::vector<float> host_cost_mat(width*height*ZPlanes,255.f);
+
     //GPU
     double *K,*R,*t,            //current
         *K_inv,*R_inv,*t_inv;   //ref
@@ -140,6 +141,9 @@ std::vector<cv::Mat> single_cam_fp32_gpu(
     CHK(cudaMemcpy(t_inv,&ref.p.t_inv[0],3*sizeof(double),cudaMemcpyHostToDevice));
     CHK(cudaMemcpy(ref_Y_img,ref.YUV[0].data,width*height*sizeof(uint8_t),cudaMemcpyHostToDevice));
 
+    //init cost mat:
+    cudaMemcpy(dev_cost_mat,&host_cost_mat[0],width*height*ZPlanes*sizeof(float),cudaMemcpyHostToDevice);
+
     for(int cam_idx = 0; cam_idx < cam_vec_size; cam_idx++){
 
         //skip ref cam
@@ -172,12 +176,12 @@ std::vector<cv::Mat> single_cam_fp32_gpu(
         CHK(cudaDeviceSynchronize());
     }
 
-    CHK(cudaMemcpy(host_cost_mat,dev_cost_mat,width*height*ZPlanes*sizeof(float),cudaMemcpyDeviceToHost));
+    CHK(cudaMemcpy(&host_cost_mat[0],dev_cost_mat,width*height*ZPlanes*sizeof(float),cudaMemcpyDeviceToHost));
 
     //copy back in cv mat format
     for(int zi = 0; zi < ZPlanes; zi++){
 
-        float* host_cost_zi = host_cost_mat + zi*width*height;
+        float* host_cost_zi = &host_cost_mat[zi*width*height];
 
         result.at(zi) = cv::Mat(
             height, 
@@ -200,9 +204,6 @@ Error:
     cudaFree(current_Y_img);
 
     cudaFree(dev_cost_mat);
-
-    //free host pointers
-    free(host_cost_mat);
 
     return result;
 }
