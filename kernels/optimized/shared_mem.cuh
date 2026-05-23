@@ -3,7 +3,7 @@
 #include "../../src/constants.hpp"
 #include "../commons/utils.cuh"
 
-std::vector<cv::Mat> constant_mem_sweeping_plane(
+std::vector<cv::Mat> single_cam_shared_mem_sweeping_plane(
     int ref_idx,
     std::vector<cam> const cam_vector,
     int window = 3

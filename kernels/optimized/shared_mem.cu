@@ -1,13 +1,21 @@
-#include "constant_mem.cuh"
+#include "shared_mem.cuh"
 #define divup(x,y) (((x)+(y)-1)/(y))
 
-__constant__ double K[9],K_inv[9],
-                    R[9],R_inv[9],
-                    t[3],t_inv[3];
+#define SHARED_X_SIZE 36
+#define SHARED_Y_SIZE 12
+#define SHARED_Z_SIZE 2
+#define SHARED_TOT_SIZE (SHARED_X_SIZE*SHARED_Y_SIZE*SHARED_Z_SIZE)
 
-__global__ void constant_mem_kernel(
+__global__ void shared_mem2_kernel(
 
-    const uint8_t* ref_Y_img, //ref
+    const double* K,
+    const double* K_inv, //ref
+    const double* R,
+    const double* R_inv, //ref
+    const double* t,
+    const double* t_inv, //ref
+
+    const uint8_t* ref_Y_img,
     const uint8_t* current_Y_img,
 
     const int width,
@@ -16,6 +24,9 @@ __global__ void constant_mem_kernel(
 	const int window,
 	float *cost_mat
 ){
+
+    __shared__ uint8_t shared_ref_Y_img[32*8*2*9];
+
     int x = threadIdx.x + blockIdx.x * blockDim.x,
 		y = threadIdx.y + blockIdx.y * blockDim.y,
         zIdx = threadIdx.z + blockIdx.z * blockDim.z;
@@ -23,6 +34,29 @@ __global__ void constant_mem_kernel(
     if(x >= width || y >= height || zIdx >= ZPlanes){
         return;
     }
+    
+    //pull 9 pixels to shared mem
+    //only use 28 threads instead of 32
+    for(int k = 0; k < 3; k++){
+        for(int l = 0; l < 3; l++){
+            //place both images in same direction
+
+            //offset: top-left coordinates
+            int x_offset = x - (window/2),
+                y_offset = y - (window/2);
+            int x_shared = x_offset + k + 3*threadIdx.x,
+                y_shared = y_offset + l + 3*threadIdx.y;
+            
+            //pixel to pull
+            uint8_t px = ref_Y_img[x_shared + width* y_shared];
+            
+            shared_ref_Y_img[3*threadIdx.x+k+SHARED_X_SIZE*(3*threadIdx.y+l + SHARED_Y_SIZE*threadIdx.z)]
+                = px;
+        }
+    }
+
+    //wait for threads to finish
+    __syncthreads();
 
     // Calculate z from ZNear, ZFar and ZPlanes (projective transformation) (zi = 0, z = ZFar)
     double z = ZNear * ZFar / (ZNear + (((double)zIdx / (double)ZPlanes) * (ZFar - ZNear)));
@@ -69,8 +103,10 @@ __global__ void constant_mem_kernel(
 
             int idx_r = (y+k)*width + (x+l),
                 idx_c = (y_proj+k)*width + (x_proj+l);
-            
-            float ref_Y = ref_Y_img[idx_r],
+            int idx_shared = (threadIdx.x + window/2 + k) 
+                    + SHARED_X_SIZE * (threadIdx.y + window/2 + l + SHARED_Y_SIZE * threadIdx.z);
+
+            uint8_t ref_Y = shared_ref_Y_img[idx_shared],
                 curr = current_Y_img[idx_c];
 
             // Y
@@ -85,7 +121,7 @@ __global__ void constant_mem_kernel(
     cost_mat[(x + width*(y + height*(zIdx)))] = fminf(cost,min);
 }
 
-std::vector<cv::Mat> constant_mem_sweeping_plane(
+std::vector<cv::Mat> single_cam_shared_mem_sweeping_plane(
     int ref_idx,
     std::vector<cam> const cam_vector,
     int window
@@ -120,13 +156,19 @@ std::vector<cv::Mat> constant_mem_sweeping_plane(
     //init pointers
     CHK(cudaMalloc(&dev_cost_mat,width*height*ZPlanes*sizeof(float)));
 
+    CHK(cudaMalloc(&K,9*sizeof(double)));
+    CHK(cudaMalloc(&K_inv,9*sizeof(double)));
+    CHK(cudaMalloc(&R,9*sizeof(double)));
+    CHK(cudaMalloc(&R_inv,9*sizeof(double)));
+    CHK(cudaMalloc(&t,3*sizeof(double)));
+    CHK(cudaMalloc(&t_inv,3*sizeof(double)));
     CHK(cudaMalloc(&ref_Y_img,width*height*sizeof(uint8_t)));
     CHK(cudaMalloc(&current_Y_img,width*height*sizeof(uint8_t)));
 
     //cpy ref cam
-    CHK(cudaMemcpyToSymbol(K_inv,&ref.p.K_inv[0],9*sizeof(double),cudaMemcpyHostToDevice));
-    CHK(cudaMemcpyToSymbol(R_inv,&ref.p.R_inv[0],9*sizeof(double),cudaMemcpyHostToDevice));
-    CHK(cudaMemcpyToSymbol(t_inv,&ref.p.t_inv[0],3*sizeof(double),cudaMemcpyHostToDevice));
+    CHK(cudaMemcpy(K_inv,&ref.p.K_inv[0],9*sizeof(double),cudaMemcpyHostToDevice));
+    CHK(cudaMemcpy(R_inv,&ref.p.R_inv[0],9*sizeof(double),cudaMemcpyHostToDevice));
+    CHK(cudaMemcpy(t_inv,&ref.p.t_inv[0],3*sizeof(double),cudaMemcpyHostToDevice));
     CHK(cudaMemcpy(ref_Y_img,ref.YUV[0].data,width*height*sizeof(uint8_t),cudaMemcpyHostToDevice));
 
     for(int cam_idx = 0; cam_idx < cam_vec_size; cam_idx++){
@@ -139,14 +181,17 @@ std::vector<cv::Mat> constant_mem_sweeping_plane(
         cam curr = cam_vector.at(cam_idx);
 
         //cpy content of current camera
-        CHK(cudaMemcpyToSymbol(K,&curr.p.K[0],9*sizeof(double),cudaMemcpyHostToDevice));
-        CHK(cudaMemcpyToSymbol(R,&curr.p.R[0],9*sizeof(double),cudaMemcpyHostToDevice));
-        CHK(cudaMemcpyToSymbol(t,&curr.p.t[0],3*sizeof(double),cudaMemcpyHostToDevice));
+        CHK(cudaMemcpy(K,&curr.p.K[0],9*sizeof(double),cudaMemcpyHostToDevice));
+        CHK(cudaMemcpy(R,&curr.p.R[0],9*sizeof(double),cudaMemcpyHostToDevice));
+        CHK(cudaMemcpy(t,&curr.p.t[0],3*sizeof(double),cudaMemcpyHostToDevice));
 
 
         CHK(cudaMemcpy(current_Y_img,curr.YUV[0].data,width*height*sizeof(uint8_t),cudaMemcpyHostToDevice));
         //run kernel
-        constant_mem_kernel<<<N_blocks,max_threads_512>>>(
+        shared_mem2_kernel<<<N_blocks,max_threads_512>>>(
+            K,K_inv,
+            R,R_inv,
+            t,t_inv,
             ref_Y_img,
             current_Y_img,
             width,
@@ -176,6 +221,12 @@ std::vector<cv::Mat> constant_mem_sweeping_plane(
 Error:
 
     //free cuda pointers
+    cudaFree(K);
+    cudaFree(K_inv);
+    cudaFree(R);
+    cudaFree(R_inv);
+    cudaFree(t);
+    cudaFree(t_inv);
     cudaFree(ref_Y_img);
     cudaFree(current_Y_img);
 
