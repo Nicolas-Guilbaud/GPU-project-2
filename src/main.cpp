@@ -2,6 +2,7 @@
 #include "../kernels/main.cuh"
 
 #include "../kernels/optimized/shared_mem.cuh"
+#include "../kernels/optimized/single_precision.cuh"
 
 #include "../kernels/old/constant_mem.cuh"
 #include "../kernels/old/texture_mem.cuh"
@@ -380,26 +381,26 @@ int main()
 	// Read cams
 	std::vector<cam> cam_vector = read_cams("data");
 
-	std::vector<cv::Mat> cost_cube = measure_runtime(0,cam_vector,5);
+	// std::vector<cv::Mat> cost_cube = measure_runtime(0,cam_vector,5);
 	// std::vector<cv::Mat> cost_cube = texture_sweeping_plane(0,cam_vector,5);
 
 	//texture memory
-	// auto start = std::chrono::high_resolution_clock::now();
-	// auto cost_cube = naive_gpu_sweeping_plane(0, cam_vector, SINGLE_CAMERA_GPU, 5);
-	// auto end = std::chrono::high_resolution_clock::now();
-	// auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-	// std::cout << "single cam - Duration: " << duration << std::endl;
+	auto start = std::chrono::high_resolution_clock::now();
+	auto cost_cube = naive_gpu_sweeping_plane(0, cam_vector, SINGLE_CAMERA_GPU, 5);
+	auto end = std::chrono::high_resolution_clock::now();
+	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+	std::cout << "single cam - Duration: " << duration << std::endl;
 	
 	//shared memory
-	// start = std::chrono::high_resolution_clock::now();
-	// cost_cube = single_cam_shared_mem_sweeping_plane(0, cam_vector, 5);
-	// end = std::chrono::high_resolution_clock::now();
-	// duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-	// std::cout << "constant mem - Duration: " << duration << std::endl;
+	start = std::chrono::high_resolution_clock::now();
+	cost_cube = single_cam_fp32_gpu(0, cam_vector, 5);
+	end = std::chrono::high_resolution_clock::now();
+	duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+	std::cout << "constant mem - Duration: " << duration << std::endl;
 
 	//profiling
 	// auto start = std::chrono::high_resolution_clock::now();
-	// auto cost_cube = constant_mem_sweeping_plane(0, cam_vector ,5);
+	// auto cost_cube = single_cam_fp32_gpu(0, cam_vector ,5);
 	// auto end = std::chrono::high_resolution_clock::now();
 	// auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 	// std::cout << "Duration: " << duration << std::endl;

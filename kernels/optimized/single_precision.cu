@@ -1,8 +1,9 @@
-#include "coalesced.cuh"
+#include "single_precision.cuh"
+
 #define divup(x,y) (((x)+(y)-1)/(y))
 
 
-__global__ void single_cam_gpu_kernel(
+__global__ void single_cam_single_precision_kernel(
 
     const double* K,
     const double* K_inv, //ref
@@ -29,27 +30,27 @@ __global__ void single_cam_gpu_kernel(
     }
 
     // Calculate z from ZNear, ZFar and ZPlanes (projective transformation) (zi = 0, z = ZFar)
-    double z = ZNear * ZFar / (ZNear + (((double)zIdx / (double)ZPlanes) * (ZFar - ZNear)));
+    float z = ZNear * ZFar / (ZNear + (((float)zIdx / (float)ZPlanes) * (ZFar - ZNear)));
 
     // 2D ref camera point to 3D in ref camera coordinates (p * K_inv)
-    double X_ref = (K_inv[0] * x + K_inv[1] * y + K_inv[2]) * z;
-    double Y_ref = (K_inv[3] * x + K_inv[4] * y + K_inv[5]) * z;
-    double Z_ref = (K_inv[6] * x + K_inv[7] * y + K_inv[8]) * z;
+    float X_ref = (K_inv[0] * x + K_inv[1] * y + K_inv[2]) * z;
+    float Y_ref = (K_inv[3] * x + K_inv[4] * y + K_inv[5]) * z;
+    float Z_ref = (K_inv[6] * x + K_inv[7] * y + K_inv[8]) * z;
 
     // 3D in ref camera coordinates to 3D world
-    double X = R_inv[0] * X_ref + R_inv[1] * Y_ref + R_inv[2] * Z_ref - t_inv[0];
-    double Y = R_inv[3] * X_ref + R_inv[4] * Y_ref + R_inv[5] * Z_ref - t_inv[1];
-    double Z = R_inv[6] * X_ref + R_inv[7] * Y_ref + R_inv[8] * Z_ref - t_inv[2];
+    float X = R_inv[0] * X_ref + R_inv[1] * Y_ref + R_inv[2] * Z_ref - t_inv[0];
+    float Y = R_inv[3] * X_ref + R_inv[4] * Y_ref + R_inv[5] * Z_ref - t_inv[1];
+    float Z = R_inv[6] * X_ref + R_inv[7] * Y_ref + R_inv[8] * Z_ref - t_inv[2];
 
     // 3D world to projected camera 3D coordinates
-    double X_proj = R[0] * X + R[1] * Y + R[2] * Z - t[0];
-    double Y_proj = R[3] * X + R[4] * Y + R[5] * Z - t[1];
-    double Z_proj = R[6] * X + R[7] * Y + R[8] * Z - t[2];
+    float X_proj = R[0] * X + R[1] * Y + R[2] * Z - t[0];
+    float Y_proj = R[3] * X + R[4] * Y + R[5] * Z - t[1];
+    float Z_proj = R[6] * X + R[7] * Y + R[8] * Z - t[2];
 
     // Projected camera 3D coordinates to projected camera 2D coordinates
-    double x_proj = (K[0] * X_proj / Z_proj + K[1] * Y_proj / Z_proj + K[2]);
-    double y_proj = (K[3] * X_proj / Z_proj + K[4] * Y_proj / Z_proj + K[5]);
-    double z_proj = Z_proj;
+    float x_proj = (K[0] * X_proj / Z_proj + K[1] * Y_proj / Z_proj + K[2]);
+    float y_proj = (K[3] * X_proj / Z_proj + K[4] * Y_proj / Z_proj + K[5]);
+    float z_proj = Z_proj;
     
     x_proj = x_proj < 0 || x_proj >= width ? 0 : roundf(x_proj);
     y_proj = y_proj < 0 || y_proj >= height ? 0 : roundf(y_proj);
@@ -58,9 +59,9 @@ __global__ void single_cam_gpu_kernel(
     float cost = 0.0f;
     float cc = 0.0f;
 
-    for (int l = -window / 2; l <= window / 2; l++)
+    for (int k = -window / 2; k <= window / 2; k++)
     {
-        for (int k = -window / 2; k <= window / 2; k++)
+        for (int l = -window / 2; l <= window / 2; l++)
         {
             if (x + l < 0 || x + l >= width)
                 continue;
@@ -89,7 +90,7 @@ __global__ void single_cam_gpu_kernel(
     cost_mat[(x + width*(y + height*(zIdx)))] = fminf(cost,min);
 }
 
-std::vector<cv::Mat> single_cam_gpu(
+std::vector<cv::Mat> single_cam_fp32_gpu(
     int ref_idx,
     std::vector<cam> const cam_vector,
     int window
@@ -156,7 +157,7 @@ std::vector<cv::Mat> single_cam_gpu(
 
         CHK(cudaMemcpy(current_Y_img,curr.YUV[0].data,width*height*sizeof(uint8_t),cudaMemcpyHostToDevice));
         //run kernel
-        single_cam_gpu_kernel<<<N_blocks,max_threads_512>>>(
+        single_cam_single_precision_kernel<<<N_blocks,max_threads_512>>>(
             K,K_inv,
             R,R_inv,
             t,t_inv,
