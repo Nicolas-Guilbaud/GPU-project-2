@@ -1,3 +1,9 @@
+/*  
+    1st Optimization: 
+    store all the parameters of each camera in the constant memory
+    (except Y channel of the image, because it does not fit)
+*/
+
 #pragma once
 #include "../../src/cam_params.hpp"
 #include "../../src/constants.hpp"

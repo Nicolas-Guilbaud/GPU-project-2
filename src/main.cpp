@@ -1,8 +1,8 @@
 #include "../kernels/naive.cuh"
 #include "../kernels/main.cuh"
 #include "../kernels/optimized/constant_mem.cuh"
-#include "../kernels/optimized/texture_mem.cuh"
-#include "../kernels/optimized/shared_mem.cuh"
+// #include "../kernels/optimized/texture_mem.cuh"
+// #include "../kernels/optimized/shared_mem.cuh"
 
 #include "cam_params.hpp"
 #include "constants.hpp"
@@ -340,19 +340,19 @@ std::vector<cv::Mat> measure_runtime(
 	duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 	runtime_file <<  "constant_mem," << duration << std::endl;
 
-	//texture memory
-	start = std::chrono::high_resolution_clock::now();
-	cost_cube = texture_sweeping_plane(0, cam_vector, 5);
-	end = std::chrono::high_resolution_clock::now();
-	duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-	runtime_file << "texture_mem," << duration << std::endl;
+	// //texture memory
+	// start = std::chrono::high_resolution_clock::now();
+	// cost_cube = texture_sweeping_plane(0, cam_vector, 5);
+	// end = std::chrono::high_resolution_clock::now();
+	// duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+	// runtime_file << "texture_mem," << duration << std::endl;
 
-	//shared memory
-	start = std::chrono::high_resolution_clock::now();
-	cost_cube = shared_sweeping_plane(0, cam_vector, 5);
-	end = std::chrono::high_resolution_clock::now();
-	duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-	runtime_file << "shared_mem," << duration << std::endl;
+	// //shared memory
+	// start = std::chrono::high_resolution_clock::now();
+	// cost_cube = shared_sweeping_plane(0, cam_vector, 5);
+	// end = std::chrono::high_resolution_clock::now();
+	// duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+	// runtime_file << "shared_mem," << duration << std::endl;
 
 	runtime_file.close();
 
@@ -369,27 +369,27 @@ int main()
 	// std::vector<cv::Mat> cost_cube = texture_sweeping_plane(0,cam_vector,5);
 
 	//texture memory
-	// auto start = std::chrono::high_resolution_clock::now();
-	// auto cost_cube = naive_gpu_sweeping_plane(0, cam_vector, SINGLE_CAMERA, 5);
-	// auto end = std::chrono::high_resolution_clock::now();
-	// auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-	// std::cout << "single cam - Duration: " << duration << std::endl;
+	auto start = std::chrono::high_resolution_clock::now();
+	auto cost_cube = naive_gpu_sweeping_plane(0, cam_vector, SINGLE_CAMERA_GPU, 5);
+	auto end = std::chrono::high_resolution_clock::now();
+	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+	std::cout << "single cam - Duration: " << duration << std::endl;
 	
 	//shared memory
-	// start = std::chrono::high_resolution_clock::now();
-	// cost_cube = naive_gpu_sweeping_plane(0, cam_vector, MULTI_ELEMS, 5);
-	// end = std::chrono::high_resolution_clock::now();
-	// duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-	// std::cout << "multi elem - Duration: " << duration << std::endl;
+	start = std::chrono::high_resolution_clock::now();
+	cost_cube = constant_mem_sweeping_plane(0, cam_vector, 5);
+	end = std::chrono::high_resolution_clock::now();
+	duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+	std::cout << "constant mem - Duration: " << duration << std::endl;
 
 	//profiling
 	// auto start = std::chrono::high_resolution_clock::now();
-	auto cost_cube = naive_gpu_sweeping_plane(0, cam_vector,SINGLE_CAMERA_GPU ,5);
+	// auto cost_cube = constant_mem_sweeping_plane(0, cam_vector ,5);
 	// auto end = std::chrono::high_resolution_clock::now();
 	// auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 	// std::cout << "Duration: " << duration << std::endl;
 
-	// save mat_cost as 256 images -> used for debug purposes
+	//save mat_cost as 256 images -> used for debug purposes
 	// for(int z = 0; z < ZPlanes; z++){
 	// 	std::ostringstream stream;
 	// 	stream << "./results/planes/depth_" << z << ".png";
