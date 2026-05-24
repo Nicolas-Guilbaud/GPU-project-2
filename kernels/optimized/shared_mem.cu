@@ -1,21 +1,18 @@
 #include "shared_mem.cuh"
+
 #define divup(x,y) (((x)+(y)-1)/(y))
+#define SHARED_BLOCK_SIZE_X 32
+#define SHARED_BLOCK_SIZE_Y 16
+#define SHARED_N_BLOCKS 9
+#define SHARED_WIDTH 3*SHARED_BLOCK_SIZE_X
 
-#define SHARED_X_SIZE 36
-#define SHARED_Y_SIZE 12
-#define SHARED_Z_SIZE 2
-#define SHARED_TOT_SIZE (SHARED_X_SIZE*SHARED_Y_SIZE*SHARED_Z_SIZE)
+__global__ void single_cam_shared_mem_kernel(
 
-__global__ void shared_mem2_kernel(
-
+    const double* A,
+    const double* B,
     const double* K,
-    const double* K_inv, //ref
-    const double* R,
-    const double* R_inv, //ref
-    const double* t,
-    const double* t_inv, //ref
 
-    const uint8_t* ref_Y_img,
+    const uint8_t* ref_Y_img, //ref
     const uint8_t* current_Y_img,
 
     const int width,
@@ -25,61 +22,42 @@ __global__ void shared_mem2_kernel(
 	float *cost_mat
 ){
 
-    __shared__ uint8_t shared_ref_Y_img[32*8*2*9];
+    __shared__ uint8_t shared_ref_Y[SHARED_BLOCK_SIZE_X*SHARED_BLOCK_SIZE_Y*SHARED_N_BLOCKS];
 
     int x = threadIdx.x + blockIdx.x * blockDim.x,
 		y = threadIdx.y + blockIdx.y * blockDim.y,
         zIdx = threadIdx.z + blockIdx.z * blockDim.z;
     
+    //each thread pulls 9 px
+    for(int k = 0; k < 3; k++){
+        for(int l = 0; l < 3; l++){
+            //offset: top-left coordinates
+            int x_offset = x - SHARED_BLOCK_SIZE_X,
+                y_offset = y - SHARED_BLOCK_SIZE_Y;
+            int x_shared = l + threadIdx.x*3,
+                y_shared = k + threadIdx.y*3;
+            int x_ref = x_shared + x_offset,
+                y_ref = y_shared + y_offset;
+
+            shared_ref_Y[x_shared+SHARED_BLOCK_SIZE_X*y_shared] = ref_Y_img[x_ref + width*y_ref];
+        }
+    }
+    
     if(x >= width || y >= height || zIdx >= ZPlanes){
         return;
     }
-    
-    //pull 9 pixels to shared mem
-    //only use 28 threads instead of 32
-    for(int k = 0; k < 3; k++){
-        for(int l = 0; l < 3; l++){
-            //place both images in same direction
 
-            //offset: top-left coordinates
-            int x_offset = x - (window/2),
-                y_offset = y - (window/2);
-            int x_shared = x_offset + k + 3*threadIdx.x,
-                y_shared = y_offset + l + 3*threadIdx.y;
-            
-            //pixel to pull
-            uint8_t px = ref_Y_img[x_shared + width* y_shared];
-            
-            shared_ref_Y_img[3*threadIdx.x+k+SHARED_X_SIZE*(3*threadIdx.y+l + SHARED_Y_SIZE*threadIdx.z)]
-                = px;
-        }
-    }
-
-    //wait for threads to finish
     __syncthreads();
 
     // Calculate z from ZNear, ZFar and ZPlanes (projective transformation) (zi = 0, z = ZFar)
-    double z = ZNear * ZFar / (ZNear + (((double)zIdx / (double)ZPlanes) * (ZFar - ZNear)));
+    float z = ZNear * ZFar / (ZNear + (((float)zIdx / (float)ZPlanes) * (ZFar - ZNear)));
 
-    // 2D ref camera point to 3D in ref camera coordinates (p * K_inv)
-    double X_ref = (K_inv[0] * x + K_inv[1] * y + K_inv[2]) * z;
-    double Y_ref = (K_inv[3] * x + K_inv[4] * y + K_inv[5]) * z;
-    double Z_ref = (K_inv[6] * x + K_inv[7] * y + K_inv[8]) * z;
+    float X_proj = ((float) A[0]*x + (float) A[1]*y + (float) A[2])*z - (float) B[0],
+        Y_proj = ((float) A[3]*x + (float) A[4]*y + (float) A[5])*z - (float) B[1],
+        Z_proj = ((float) A[6]*x + (float) A[7]*y + (float) A[8])*z - (float) B[2];
 
-    // 3D in ref camera coordinates to 3D world
-    double X = R_inv[0] * X_ref + R_inv[1] * Y_ref + R_inv[2] * Z_ref - t_inv[0];
-    double Y = R_inv[3] * X_ref + R_inv[4] * Y_ref + R_inv[5] * Z_ref - t_inv[1];
-    double Z = R_inv[6] * X_ref + R_inv[7] * Y_ref + R_inv[8] * Z_ref - t_inv[2];
-
-    // 3D world to projected camera 3D coordinates
-    double X_proj = R[0] * X + R[1] * Y + R[2] * Z - t[0];
-    double Y_proj = R[3] * X + R[4] * Y + R[5] * Z - t[1];
-    double Z_proj = R[6] * X + R[7] * Y + R[8] * Z - t[2];
-
-    // Projected camera 3D coordinates to projected camera 2D coordinates
-    double x_proj = (K[0] * X_proj / Z_proj + K[1] * Y_proj / Z_proj + K[2]);
-    double y_proj = (K[3] * X_proj / Z_proj + K[4] * Y_proj / Z_proj + K[5]);
-    double z_proj = Z_proj;
+    float x_proj = (float) K[0]* X_proj / Z_proj + (float) K[1]*Y_proj/Z_proj + (float) K[2],
+        y_proj = (float) K[3] * X_proj / Z_proj + (float) K[4]*Y_proj/Z_proj + (float) K[5];
     
     x_proj = x_proj < 0 || x_proj >= width ? 0 : roundf(x_proj);
     y_proj = y_proj < 0 || y_proj >= height ? 0 : roundf(y_proj);
@@ -101,12 +79,10 @@ __global__ void shared_mem2_kernel(
             if (y_proj + k < 0 || y_proj + k >= height)
                 continue;
 
-            int idx_r = (y+k)*width + (x+l),
+            int idx_r = (SHARED_BLOCK_SIZE_Y+threadIdx.y+k) *SHARED_WIDTH + (SHARED_BLOCK_SIZE_X+threadIdx.x+l),
                 idx_c = (y_proj+k)*width + (x_proj+l);
-            int idx_shared = (threadIdx.x + window/2 + k) 
-                    + SHARED_X_SIZE * (threadIdx.y + window/2 + l + SHARED_Y_SIZE * threadIdx.z);
-
-            uint8_t ref_Y = shared_ref_Y_img[idx_shared],
+            
+            uint8_t ref_Y = shared_ref_Y[idx_r],
                 curr = current_Y_img[idx_c];
 
             // Y
@@ -134,11 +110,11 @@ std::vector<cv::Mat> single_cam_shared_mem_sweeping_plane(
 
     int cam_vec_size = cam_vector.size();
 
-    //CPU
-    float *host_cost_mat = new float[width*height*ZPlanes] {255.f};
+    //CPUrows
+    std::vector<float> host_cost_mat(width*height*ZPlanes,255.f);
+    double resA[9],resB[3];
     //GPU
-    double *K,*R,*t,            //current
-        *K_inv,*R_inv,*t_inv;   //ref
+    double *dev_A,*dev_B, *dev_K;
     
     float *dev_cost_mat;        //output
     uint8_t *ref_Y_img, *current_Y_img;
@@ -155,21 +131,19 @@ std::vector<cv::Mat> single_cam_shared_mem_sweeping_plane(
 
     //init pointers
     CHK(cudaMalloc(&dev_cost_mat,width*height*ZPlanes*sizeof(float)));
+    CHK(cudaMalloc(&dev_A,9*sizeof(double)));
+    CHK(cudaMalloc(&dev_B,3*sizeof(double)));
+    CHK(cudaMalloc(&dev_K,9*sizeof(double)));
 
-    CHK(cudaMalloc(&K,9*sizeof(double)));
-    CHK(cudaMalloc(&K_inv,9*sizeof(double)));
-    CHK(cudaMalloc(&R,9*sizeof(double)));
-    CHK(cudaMalloc(&R_inv,9*sizeof(double)));
-    CHK(cudaMalloc(&t,3*sizeof(double)));
-    CHK(cudaMalloc(&t_inv,3*sizeof(double)));
+
     CHK(cudaMalloc(&ref_Y_img,width*height*sizeof(uint8_t)));
     CHK(cudaMalloc(&current_Y_img,width*height*sizeof(uint8_t)));
 
     //cpy ref cam
-    CHK(cudaMemcpy(K_inv,&ref.p.K_inv[0],9*sizeof(double),cudaMemcpyHostToDevice));
-    CHK(cudaMemcpy(R_inv,&ref.p.R_inv[0],9*sizeof(double),cudaMemcpyHostToDevice));
-    CHK(cudaMemcpy(t_inv,&ref.p.t_inv[0],3*sizeof(double),cudaMemcpyHostToDevice));
     CHK(cudaMemcpy(ref_Y_img,ref.YUV[0].data,width*height*sizeof(uint8_t),cudaMemcpyHostToDevice));
+
+    //init cost mat:
+    cudaMemcpy(dev_cost_mat,&host_cost_mat[0],width*height*ZPlanes*sizeof(float),cudaMemcpyHostToDevice);
 
     for(int cam_idx = 0; cam_idx < cam_vec_size; cam_idx++){
 
@@ -180,18 +154,30 @@ std::vector<cv::Mat> single_cam_shared_mem_sweeping_plane(
 
         cam curr = cam_vector.at(cam_idx);
 
-        //cpy content of current camera
-        CHK(cudaMemcpy(K,&curr.p.K[0],9*sizeof(double),cudaMemcpyHostToDevice));
-        CHK(cudaMemcpy(R,&curr.p.R[0],9*sizeof(double),cudaMemcpyHostToDevice));
-        CHK(cudaMemcpy(t,&curr.p.t[0],3*sizeof(double),cudaMemcpyHostToDevice));
+        /* matmult on CPU: */
+        cv::Mat K = cv::Mat(3,3,CV_64F,&curr.p.K[0]), 
+            K_inv = cv::Mat(3,3,CV_64F,&ref.p.K_inv[0]), 
+            R = cv::Mat(3,3,CV_64F,&curr.p.R[0]), 
+            R_inv = cv::Mat(3,3,CV_64F,&ref.p.R_inv[0]), 
+            t = cv::Mat(3,1,CV_64F,&curr.p.t[0]), 
+            t_inv = cv::Mat(3,1,CV_64F,&ref.p.t_inv[0]);
 
+        cv::Mat host_A = R*R_inv*K_inv,
+            host_B = (R*t_inv) + t;
 
+        double *a = host_A.ptr<double>(),
+            *b = host_B.ptr<double>(),
+            *host_K = K.ptr<double>();
+
+        //copy homogeneous matrices
+        cudaMemcpy(dev_A,a,9*sizeof(double),cudaMemcpyHostToDevice);
+        cudaMemcpy(dev_B,b,3*sizeof(double),cudaMemcpyHostToDevice);
+        cudaMemcpy(dev_K,host_K,9*sizeof(double),cudaMemcpyHostToDevice);
+        
         CHK(cudaMemcpy(current_Y_img,curr.YUV[0].data,width*height*sizeof(uint8_t),cudaMemcpyHostToDevice));
         //run kernel
-        shared_mem2_kernel<<<N_blocks,max_threads_512>>>(
-            K,K_inv,
-            R,R_inv,
-            t,t_inv,
+        single_cam_shared_mem_kernel<<<N_blocks,max_threads_512>>>(
+            dev_A,dev_B,dev_K,
             ref_Y_img,
             current_Y_img,
             width,
@@ -203,12 +189,12 @@ std::vector<cv::Mat> single_cam_shared_mem_sweeping_plane(
         CHK(cudaDeviceSynchronize());
     }
 
-    CHK(cudaMemcpy(host_cost_mat,dev_cost_mat,width*height*ZPlanes*sizeof(float),cudaMemcpyDeviceToHost));
+    CHK(cudaMemcpy(&host_cost_mat[0],dev_cost_mat,width*height*ZPlanes*sizeof(float),cudaMemcpyDeviceToHost));
 
     //copy back in cv mat format
     for(int zi = 0; zi < ZPlanes; zi++){
 
-        float* host_cost_zi = host_cost_mat + zi*width*height;
+        float* host_cost_zi = &host_cost_mat[zi*width*height];
 
         result.at(zi) = cv::Mat(
             height, 
@@ -221,19 +207,13 @@ std::vector<cv::Mat> single_cam_shared_mem_sweeping_plane(
 Error:
 
     //free cuda pointers
-    cudaFree(K);
-    cudaFree(K_inv);
-    cudaFree(R);
-    cudaFree(R_inv);
-    cudaFree(t);
-    cudaFree(t_inv);
+    cudaFree(dev_A);
+    cudaFree(dev_B);
+    cudaFree(dev_K);
     cudaFree(ref_Y_img);
     cudaFree(current_Y_img);
 
     cudaFree(dev_cost_mat);
-
-    //free host pointers
-    free(host_cost_mat);
 
     return result;
 }
