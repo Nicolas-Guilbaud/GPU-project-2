@@ -1,12 +1,11 @@
 #include "../kernels/naive.cuh"
 #include "../kernels/main.cuh"
 
-#include "../kernels/optimized/shared_mem.cuh"
 #include "../kernels/optimized/single_precision.cuh"
-
-#include "../kernels/old/constant_mem.cuh"
-#include "../kernels/old/texture_mem.cuh"
-#include "../kernels/old/shared_mem.cuh"
+#include "../kernels/optimized/homography.cuh"
+#include "../kernels/optimized/homography_approx.cuh"
+#include "../kernels/optimized/fast_convol.cuh"
+#include "../kernels/optimized/fast_convol_cpu_cast.cuh"
 
 
 #include "cam_params.hpp"
@@ -28,6 +27,7 @@
 #include <string>
 
 #define SHRT_MAX 32767
+#define FMA_FLAGS false
 
 std::vector<cam> read_cams(std::string const &folder)
 {
@@ -301,7 +301,8 @@ std::vector<cv::Mat> measure_runtime(
 	// Sweeping algorithm for camera 0
 
 	//save runtime in csv file:
-	std::ofstream runtime_file("./results/runtime.csv");
+	std::string name = FMA_FLAGS ? "runtime_with_flags.csv" : "runtime_without_flags.csv";
+	std::ofstream runtime_file("./results/" + name);
 
 	/* CPU */
 	auto start = std::chrono::high_resolution_clock::now();
@@ -338,37 +339,42 @@ std::vector<cv::Mat> measure_runtime(
 	duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 	runtime_file <<  "single_plane," << duration << std::endl;
 
-	/* SINGLE PLANE */
+	/* SINGLE CAM */
 
-	//shared memory
+	//fp32
 	start = std::chrono::high_resolution_clock::now();
-	cost_cube = single_cam_shared_mem_sweeping_plane(ref_idx, cam_vector, window);
+	cost_cube = single_cam_fp32_gpu(ref_idx, cam_vector, window);
 	end = std::chrono::high_resolution_clock::now();
 	duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-	runtime_file <<  "single_cam_shared_mem," << duration << std::endl;
+	runtime_file <<  "naive_fp32," << duration << std::endl;
 
-	/* MULTI ELEMS */
-
-	//constant mem
+	//homogeneous coordinates
 	start = std::chrono::high_resolution_clock::now();
-	cost_cube = constant_mem_sweeping_plane(0, cam_vector, 5);
+	cost_cube = single_cam_homography_gpu(ref_idx, cam_vector, window);
 	end = std::chrono::high_resolution_clock::now();
 	duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-	runtime_file << "multi_elem_cst_mem," << duration << std::endl;
+	runtime_file <<  "homogeneous," << duration << std::endl;
 
-	//texture memory
+	//approx homogeneous coordinates
 	start = std::chrono::high_resolution_clock::now();
-	cost_cube = texture_sweeping_plane(0, cam_vector, 5);
+	cost_cube = single_cam_homography_approx(ref_idx, cam_vector, window);
 	end = std::chrono::high_resolution_clock::now();
 	duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-	runtime_file << "multi_elem_texture_mem," << duration << std::endl;
+	runtime_file <<  "homogeneous_approx," << duration << std::endl;
 
-	//shared memory
+	//fast convolution
 	start = std::chrono::high_resolution_clock::now();
-	cost_cube = shared_sweeping_plane(0, cam_vector, 5);
+	cost_cube = single_cam_fast_convol(ref_idx, cam_vector, window);
 	end = std::chrono::high_resolution_clock::now();
 	duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-	runtime_file << "multi_elem_shared_mem," << duration << std::endl;
+	runtime_file <<  "fast_convol," << duration << std::endl;
+
+	//CPU cast
+	start = std::chrono::high_resolution_clock::now();
+	cost_cube = single_cam_fast_convol_cpu_cast(ref_idx, cam_vector, window);
+	end = std::chrono::high_resolution_clock::now();
+	duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+	runtime_file <<  "fast_convol_cpu_cast," << duration << std::endl;
 
 	runtime_file.close();
 
@@ -376,31 +382,69 @@ std::vector<cv::Mat> measure_runtime(
 
 }
 
+void save_depth_map(std::vector<cv::Mat> cost_cube, std::string filename){
+	//use graph cut for precise error measure
+	cv::Mat depth = depth_estimation_by_graph_cut_sWeight(cost_cube);
+	cv::imwrite("./results/" + filename, depth);
+}
+
+void generate_depth_maps(std::vector<cam> cam_vector){
+
+	/* Naive*/
+
+	//Single plane
+	auto cost_cube = naive_gpu_sweeping_plane(0,cam_vector,SINGLE_PLANE,5);
+	save_depth_map(cost_cube,"naive_single_plane.png");
+
+	//single cam CPU
+	cost_cube = naive_gpu_sweeping_plane(0,cam_vector,SINGLE_CAMERA_CPU,5);
+	save_depth_map(cost_cube,"naive_single_cam_cpu.png");
+
+	//single cam GPU
+	cost_cube = naive_gpu_sweeping_plane(0,cam_vector,SINGLE_CAMERA_GPU,5);
+	save_depth_map(cost_cube,"naive_single_cam_gpu.png");
+
+	//multiple elems
+	cost_cube = naive_gpu_sweeping_plane(0,cam_vector,MULTI_ELEMS,5);
+	save_depth_map(cost_cube,"naive_multi_elems.png");
+
+	/* Optimizations */
+
+	//FP 32
+	cost_cube = single_cam_fp32_gpu(0,cam_vector,5);
+	save_depth_map(cost_cube,"single_plane_fp32.png");
+
+	//homogeneous coordinates
+	cost_cube = single_cam_homography_gpu(0,cam_vector,5);
+	save_depth_map(cost_cube,"single_plane_homography.png");
+
+	//homogeneous coordinates approx
+	cost_cube = single_cam_homography_approx(0,cam_vector,5);
+	save_depth_map(cost_cube,"single_plane_homography_approx.png");
+
+	//fast cost
+	cost_cube = single_cam_fast_convol(0,cam_vector,5);
+	save_depth_map(cost_cube,"single_plane_fast_cost.png");
+
+	//homogeneous coordinates
+	cost_cube = single_cam_fast_convol_cpu_cast(0,cam_vector,5);
+	save_depth_map(cost_cube,"single_plane_fast_cost_cpu_cast.png");
+}
+
 int main()
 {
 	// Read cams
 	std::vector<cam> cam_vector = read_cams("data");
 
+	// Measure runtime
 	// std::vector<cv::Mat> cost_cube = measure_runtime(0,cam_vector,5);
-	// std::vector<cv::Mat> cost_cube = texture_sweeping_plane(0,cam_vector,5);
 
-	//texture memory
-	auto start = std::chrono::high_resolution_clock::now();
-	auto cost_cube = naive_gpu_sweeping_plane(0, cam_vector, SINGLE_CAMERA_GPU, 5);
-	auto end = std::chrono::high_resolution_clock::now();
-	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-	std::cout << "single cam - Duration: " << duration << std::endl;
-	
-	//shared memory
-	start = std::chrono::high_resolution_clock::now();
-	cost_cube = single_cam_fp32_gpu(0, cam_vector, 5);
-	end = std::chrono::high_resolution_clock::now();
-	duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-	std::cout << "constant mem - Duration: " << duration << std::endl;
+	// Generate depth maps
+	generate_depth_maps(cam_vector);
 
 	//profiling
 	// auto start = std::chrono::high_resolution_clock::now();
-	// auto cost_cube = single_cam_fp32_gpu(0, cam_vector ,5);
+	// auto cost_cube = single_cam_fast_convol_fp32(0, cam_vector, 5);
 	// auto end = std::chrono::high_resolution_clock::now();
 	// auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 	// std::cout << "Duration: " << duration << std::endl;
@@ -414,7 +458,7 @@ int main()
 
 	// Use graph cut to generate depth map 
 	// Cleaner results, long compute time
-	//cv::Mat depth = depth_estimation_by_graph_cut_sWeight(cost_cube);
+	// cv::Mat depth = depth_estimation_by_graph_cut_sWeight(cost_cube);
 
 	// Find min cost and generate depth map
 	// Faster result, low quality
@@ -425,7 +469,8 @@ int main()
 	// cv::imshow("Depth", depth);
 	// cv::waitKey(0);
 
-	// cv::imwrite("./results/depth_map_gpu.png", depth);
+	// cv::imwrite("./results/depth_map_fast_convol.png", depth);
+	
 
 	return 0;
 }
