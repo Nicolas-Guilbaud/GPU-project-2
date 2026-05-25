@@ -1,12 +1,11 @@
-#include "fp32_homography.cuh"
+#include "homography_approx.cuh"
 
 #define divup(x,y) (((x)+(y)-1)/(y))
 
-__global__ void single_cam_homography_fp32_kernel(
+__global__ void single_cam_homography_approx_kernel(
 
-    const float* A,
-    const float* B,
-    const float* K,
+    const double* A,
+    const double* B,
 
     const uint8_t* ref_Y_img, //ref
     const uint8_t* current_Y_img,
@@ -28,12 +27,12 @@ __global__ void single_cam_homography_fp32_kernel(
     // Calculate z from ZNear, ZFar and ZPlanes (projective transformation) (zi = 0, z = ZFar)
     float z = ZNear * ZFar / (ZNear + (((float)zIdx / (float)ZPlanes) * (ZFar - ZNear)));
 
-    float X_proj = ( A[0]*x +  A[1]*y +  A[2])*z -  B[0],
-        Y_proj = ( A[3]*x +  A[4]*y +  A[5])*z -  B[1],
-        Z_proj = ( A[6]*x +  A[7]*y +  A[8])*z -  B[2];
+    float X_proj = ((float) A[0] * x + (float) A[1] * y + (float) A[2]) * z - (float) B[0],
+        Y_proj = ((float) A[3] * x + (float) A[4] * y + (float) A[5]) * z - (float) B[1],
+        Z_proj = ((float) A[6] * x + (float) A[7] * y + (float) A[8]) * z - (float) B[2];
 
-    float x_proj =  K[0]* X_proj / Z_proj +  K[1]*Y_proj/Z_proj +  K[2],
-        y_proj =  K[3] * X_proj / Z_proj +  K[4]*Y_proj/Z_proj +  K[5];
+    float x_proj = X_proj / Z_proj,
+        y_proj = Y_proj / Z_proj;
     
     x_proj = x_proj < 0 || x_proj >= width ? 0 : roundf(x_proj);
     y_proj = y_proj < 0 || y_proj >= height ? 0 : roundf(y_proj);
@@ -73,7 +72,7 @@ __global__ void single_cam_homography_fp32_kernel(
     cost_mat[(x + width*(y + height*(zIdx)))] = fminf(cost,min);
 }
 
-std::vector<cv::Mat> single_cam_homography_fp32_gpu(
+std::vector<cv::Mat> single_cam_homography_approx(
     int ref_idx,
     std::vector<cam> const cam_vector,
     int window
@@ -89,7 +88,7 @@ std::vector<cv::Mat> single_cam_homography_fp32_gpu(
     //CPUrows
     std::vector<float> host_cost_mat(width*height*ZPlanes,255.f);
     //GPU
-    float *dev_A,*dev_B, *dev_K;
+    double *dev_A,*dev_B;
     
     float *dev_cost_mat;        //output
     uint8_t *ref_Y_img, *current_Y_img;
@@ -106,9 +105,8 @@ std::vector<cv::Mat> single_cam_homography_fp32_gpu(
 
     //init pointers
     CHK(cudaMalloc(&dev_cost_mat,width*height*ZPlanes*sizeof(float)));
-    CHK(cudaMalloc(&dev_A,9*sizeof(float)));
-    CHK(cudaMalloc(&dev_B,3*sizeof(float)));
-    CHK(cudaMalloc(&dev_K,9*sizeof(float)));
+    CHK(cudaMalloc(&dev_A,9*sizeof(double)));
+    CHK(cudaMalloc(&dev_B,3*sizeof(double)));
 
 
     CHK(cudaMalloc(&ref_Y_img,width*height*sizeof(uint8_t)));
@@ -137,25 +135,21 @@ std::vector<cv::Mat> single_cam_homography_fp32_gpu(
             t = cv::Mat(3,1,CV_64F,&curr.p.t[0]), 
             t_inv = cv::Mat(3,1,CV_64F,&ref.p.t_inv[0]);
 
-        cv::Mat host_A = R*R_inv*K_inv,
-            host_B = (R*t_inv) + t;
-        
-        host_A.convertTo(host_A,CV_32F);
-        host_B.convertTo(host_B,CV_32F);
+        cv::Mat host_A = K*R*R_inv*K_inv,
+            host_B = K*((R*t_inv) + t);
 
-        float *a = host_A.ptr<float>(),
-            *b = host_B.ptr<float>(),
-            *host_K = K.ptr<float>();
+        double *a = host_A.ptr<double>(),
+            *b = host_B.ptr<double>(),
+            *host_K = K.ptr<double>();
 
         //copy homogeneous matrices
-        cudaMemcpy(dev_A,a,9*sizeof(float),cudaMemcpyHostToDevice);
-        cudaMemcpy(dev_B,b,3*sizeof(float),cudaMemcpyHostToDevice);
-        cudaMemcpy(dev_K,host_K,9*sizeof(float),cudaMemcpyHostToDevice);
+        cudaMemcpy(dev_A,a,9*sizeof(double),cudaMemcpyHostToDevice);
+        cudaMemcpy(dev_B,b,3*sizeof(double),cudaMemcpyHostToDevice);
         
         CHK(cudaMemcpy(current_Y_img,curr.YUV[0].data,width*height*sizeof(uint8_t),cudaMemcpyHostToDevice));
         //run kernel
-        single_cam_homography_fp32_kernel<<<N_blocks,max_threads_512>>>(
-            dev_A,dev_B,dev_K,
+        single_cam_homography_approx_kernel<<<N_blocks,max_threads_512>>>(
+            dev_A,dev_B,
             ref_Y_img,
             current_Y_img,
             width,
@@ -187,7 +181,6 @@ Error:
     //free cuda pointers
     cudaFree(dev_A);
     cudaFree(dev_B);
-    cudaFree(dev_K);
     cudaFree(ref_Y_img);
     cudaFree(current_Y_img);
 
