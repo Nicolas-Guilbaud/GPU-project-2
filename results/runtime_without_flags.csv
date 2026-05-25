@@ -1,0 +1,10 @@
+CPU,1.12995e+06
+multi_elems,15780
+single_cam_cpu,31038
+single_cam_gpu,13703
+single_plane,11365
+naive_fp32,4868
+homogeneous,4456
+homogeneous_approx,4405
+fast_convol,3898
+fast_convol_cpu_cast,3776
