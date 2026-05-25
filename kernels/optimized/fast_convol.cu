@@ -1,10 +1,10 @@
-#include "homography.cuh"
+#include "fast_convol.cuh"
 
 #define divup(x,y) (((x)+(y)-1)/(y))
 
 __global__ void convolution_2D_naive_kernel(
     uint8_t *input,
-    float *output,
+    uint8_t *output,
     int width,
     int height,
     int window
@@ -12,34 +12,33 @@ __global__ void convolution_2D_naive_kernel(
     int x = threadIdx.x + blockDim.x * blockIdx.x,
         y = threadIdx.y + blockDim.y * blockIdx.y;
     
+    if(x >= width || y >= height)
+        return;
+    
     int sum = 0;
-    int px = 0;
     
     for(int k = -window/2; k < window/2; k++){
         for(int l = -window/2; l < window/2; l++){
 
             if(x+l < 0 || x+l >= width)
                 continue;
-            if(y+k < 0 || y+k >= width)
+            if(y+k < 0 || y+k >= height)
                 continue;
-
-            px++;
             sum += input[(x+l) + width*(y+k)];
         }
     }
 
-    output[x + width*y] = (float) sum / (float) px;
+    output[x + width*y] = sum/window;
 }
 
 
-__global__ void single_cam_fast_convol_kernel(
+__global__ void single_cam_fast_cost_kernel(
 
     const double* A,
     const double* B,
-    const double* K,
 
-    const float* ref_Y_img, //ref
-    const float* current_Y_img,
+    const uint8_t* ref_Y_img, //ref
+    const uint8_t* current_Y_img,
 
     const int width,
     const int height,
@@ -58,54 +57,24 @@ __global__ void single_cam_fast_convol_kernel(
     // Calculate z from ZNear, ZFar and ZPlanes (projective transformation) (zi = 0, z = ZFar)
     float z = ZNear * ZFar / (ZNear + (((float)zIdx / (float)ZPlanes) * (ZFar - ZNear)));
 
-    float X_proj = ((float) A[0]*x + (float) A[1]*y + (float) A[2])*z - (float) B[0],
-        Y_proj = ((float) A[3]*x + (float) A[4]*y + (float) A[5])*z - (float) B[1],
-        Z_proj = ((float) A[6]*x + (float) A[7]*y + (float) A[8])*z - (float) B[2];
+    float X_proj = ((float) A[0] * x + (float) A[1] * y + (float) A[2]) * z - (float) B[0],
+        Y_proj = ((float) A[3] * x + (float) A[4] * y + (float) A[5]) * z - (float) B[1],
+        Z_proj = ((float) A[6] * x + (float) A[7] * y + (float) A[8]) * z - (float) B[2];
 
-    float x_proj = (float) K[0]* X_proj / Z_proj + (float) K[1]*Y_proj/Z_proj + (float) K[2],
-        y_proj = (float) K[3] * X_proj / Z_proj + (float) K[4]*Y_proj/Z_proj + (float) K[5];
+    float x_proj = X_proj / Z_proj,
+        y_proj = Y_proj / Z_proj;
     
     x_proj = x_proj < 0 || x_proj >= width ? 0 : roundf(x_proj);
     y_proj = y_proj < 0 || y_proj >= height ? 0 : roundf(y_proj);
     // (ii) calculate cost against reference
     // Calculating cost in a window
-    float cost = 0.0f;
-    float cc = 0.0f;
-
-
-
-    for (int k = -window / 2; k <= window / 2; k++)
-    {
-        for (int l = -window / 2; l <= window / 2; l++)
-        {
-            if (x + l < 0 || x + l >= width)
-                continue;
-            if (y + k < 0 || y + k >= height)
-                continue;
-            if (x_proj + l < 0 || x_proj + l >= width)
-                continue;
-            if (y_proj + k < 0 || y_proj + k >= height)
-                continue;
-
-            int idx_r = (y+k)*width + (x+l),
-                idx_c = (y_proj+k)*width + (x_proj+l);
-            
-            float ref_Y = ref_Y_img[idx_r],
-                curr = current_Y_img[idx_c];
-
-            // Y
-            cost += fabsf(ref_Y-curr);
-            cc += 1.0f;
-        }
-    }
-    cost/=cc;
-
+    float cost = fabsf(ref_Y_img[x + y*width] - current_Y_img[(int) (x_proj + y_proj*width)]);
     float min = cost_mat[(x + width*(y + height*(zIdx)))];
 
     cost_mat[(x + width*(y + height*(zIdx)))] = fminf(cost,min);
 }
 
-std::vector<cv::Mat> single_cam_fast_convol_gpu(
+std::vector<cv::Mat> single_cam_fast_convol(
     int ref_idx,
     std::vector<cam> const cam_vector,
     int window
@@ -120,12 +89,11 @@ std::vector<cv::Mat> single_cam_fast_convol_gpu(
 
     //CPUrows
     std::vector<float> host_cost_mat(width*height*ZPlanes,255.f);
-    double resA[9],resB[3];
     //GPU
-    double *dev_A,*dev_B, *dev_K;
+    double *dev_A,*dev_B;
     
-    float *dev_cost_mat, *ref_Y_img, *current_Y_img;
-    uint8_t *convol_buffer;
+    float *dev_cost_mat;
+    uint8_t *ref_Y_img, *current_Y_img, *convol_buffer;
 
     //threads & blocks:
 
@@ -144,11 +112,10 @@ std::vector<cv::Mat> single_cam_fast_convol_gpu(
     CHK(cudaMalloc(&dev_cost_mat,width*height*ZPlanes*sizeof(float)));
     CHK(cudaMalloc(&dev_A,9*sizeof(double)));
     CHK(cudaMalloc(&dev_B,3*sizeof(double)));
-    CHK(cudaMalloc(&dev_K,9*sizeof(double)));
 
 
-    CHK(cudaMalloc(&ref_Y_img,width*height*sizeof(float)));
-    CHK(cudaMalloc(&current_Y_img,width*height*sizeof(float)));
+    CHK(cudaMalloc(&ref_Y_img,width*height*sizeof(uint8_t)));
+    CHK(cudaMalloc(&current_Y_img,width*height*sizeof(uint8_t)));
     CHK(cudaMalloc(&convol_buffer,width*height*sizeof(uint8_t)));
 
     //cpy ref cam to convolution buffer
@@ -185,8 +152,8 @@ std::vector<cv::Mat> single_cam_fast_convol_gpu(
             t = cv::Mat(3,1,CV_64F,&curr.p.t[0]), 
             t_inv = cv::Mat(3,1,CV_64F,&ref.p.t_inv[0]);
 
-        cv::Mat host_A = R*R_inv*K_inv,
-            host_B = (R*t_inv) + t;
+        cv::Mat host_A = K*R*R_inv*K_inv,
+            host_B = K*((R*t_inv) + t);
 
         double *a = host_A.ptr<double>(),
             *b = host_B.ptr<double>(),
@@ -195,7 +162,6 @@ std::vector<cv::Mat> single_cam_fast_convol_gpu(
         //copy homogeneous matrices
         cudaMemcpy(dev_A,a,9*sizeof(double),cudaMemcpyHostToDevice);
         cudaMemcpy(dev_B,b,3*sizeof(double),cudaMemcpyHostToDevice);
-        cudaMemcpy(dev_K,host_K,9*sizeof(double),cudaMemcpyHostToDevice);
         
         //copy Y img to convol buffer
         CHK(cudaMemcpy(convol_buffer,curr.YUV[0].data,width*height*sizeof(uint8_t),cudaMemcpyHostToDevice));
@@ -213,8 +179,8 @@ std::vector<cv::Mat> single_cam_fast_convol_gpu(
         CHK(cudaDeviceSynchronize());
 
         //run kernel
-        single_cam_fast_convol_kernel<<<N_blocks,max_threads_512>>>(
-            dev_A,dev_B,dev_K,
+        single_cam_fast_cost_kernel<<<N_blocks,max_threads_512>>>(
+            dev_A,dev_B,
             ref_Y_img,
             current_Y_img,
             width,
@@ -246,7 +212,6 @@ Error:
     //free cuda pointers
     cudaFree(dev_A);
     cudaFree(dev_B);
-    cudaFree(dev_K);
     cudaFree(ref_Y_img);
     cudaFree(current_Y_img);
 
