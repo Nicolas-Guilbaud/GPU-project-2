@@ -1,11 +1,11 @@
 #include "../kernels/naive.cuh"
-#include "../kernels/main.cuh"
 
 #include "../kernels/optimized/single_precision.cuh"
 #include "../kernels/optimized/homography.cuh"
 #include "../kernels/optimized/homography_approx.cuh"
 #include "../kernels/optimized/fast_convol.cuh"
 #include "../kernels/optimized/fast_convol_cpu_cast.cuh"
+#include "../kernels/optimized/fast_convol_less_greedy.cuh"
 
 
 #include "cam_params.hpp"
@@ -312,6 +312,13 @@ std::vector<cv::Mat> measure_runtime(
 	runtime_file <<  "CPU," << duration << std::endl;
 	/* naive GPU */
 
+	//single plane
+	start = std::chrono::high_resolution_clock::now();
+	cost_cube = naive_gpu_sweeping_plane(ref_idx, cam_vector, SINGLE_PLANE, window);
+	end = std::chrono::high_resolution_clock::now();
+	duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+	runtime_file <<  "single_plane," << duration << std::endl;
+
 	//multi elems
 	start = std::chrono::high_resolution_clock::now();
 	cost_cube = naive_gpu_sweeping_plane(ref_idx, cam_vector, MULTI_ELEMS, window);
@@ -331,13 +338,6 @@ std::vector<cv::Mat> measure_runtime(
 	end = std::chrono::high_resolution_clock::now();
 	duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 	runtime_file <<  "single_cam_gpu," << duration << std::endl;
-
-	//single plane
-	start = std::chrono::high_resolution_clock::now();
-	cost_cube = naive_gpu_sweeping_plane(ref_idx, cam_vector, SINGLE_PLANE, window);
-	end = std::chrono::high_resolution_clock::now();
-	duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-	runtime_file <<  "single_plane," << duration << std::endl;
 
 	/* SINGLE CAM */
 
@@ -375,6 +375,13 @@ std::vector<cv::Mat> measure_runtime(
 	end = std::chrono::high_resolution_clock::now();
 	duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 	runtime_file <<  "fast_convol_cpu_cast," << duration << std::endl;
+
+	//less greedy cost approx
+	start = std::chrono::high_resolution_clock::now();
+	cost_cube = single_cam_fast_convol_less_greedy(ref_idx, cam_vector, window);
+	end = std::chrono::high_resolution_clock::now();
+	duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+	runtime_file <<  "fast_convol_less_greedy," << duration << std::endl;
 
 	runtime_file.close();
 
@@ -426,9 +433,13 @@ void generate_depth_maps(std::vector<cam> cam_vector){
 	cost_cube = single_cam_fast_convol(0,cam_vector,5);
 	save_depth_map(cost_cube,"single_plane_fast_cost.png");
 
-	//homogeneous coordinates
+	//casting in CPU
 	cost_cube = single_cam_fast_convol_cpu_cast(0,cam_vector,5);
 	save_depth_map(cost_cube,"single_plane_fast_cost_cpu_cast.png");
+
+	//less greedy cost approx
+	cost_cube = single_cam_fast_convol_less_greedy(0,cam_vector,5);
+	save_depth_map(cost_cube,"single_plane_fast_cost_less_greedy.png");
 }
 
 int main()
@@ -440,15 +451,15 @@ int main()
 	// std::vector<cv::Mat> cost_cube = measure_runtime(0,cam_vector,5);
 
 	// Generate depth maps
-	generate_depth_maps(cam_vector);
+	// generate_depth_maps(cam_vector);
 
 	//profiling
-	// auto start = std::chrono::high_resolution_clock::now();
-	// auto cost_cube = single_cam_fast_convol_fp32(0, cam_vector, 5);
-	// auto end = std::chrono::high_resolution_clock::now();
-	// auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-	// std::cout << "Duration: " << duration << std::endl;
-
+	auto start = std::chrono::high_resolution_clock::now();
+	auto cost_cube = naive_gpu_sweeping_plane(0, cam_vector, SINGLE_CAMERA_GPU, 5);
+	auto end = std::chrono::high_resolution_clock::now();
+	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+	std::cout << "Duration: " << duration << std::endl;
+	
 	//save mat_cost as 256 images -> used for debug purposes
 	// for(int z = 0; z < ZPlanes; z++){
 	// 	std::ostringstream stream;
@@ -469,7 +480,7 @@ int main()
 	// cv::imshow("Depth", depth);
 	// cv::waitKey(0);
 
-	// cv::imwrite("./results/depth_map_fast_convol.png", depth);
+	// cv::imwrite("./results/single_cam_fast_convol_less_greedy.png", depth);
 	
 
 	return 0;

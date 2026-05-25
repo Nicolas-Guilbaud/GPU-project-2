@@ -29,8 +29,6 @@
 
 
 cmake_minimum_required(VERSION 3.17)
-#set(CMAKE_CXX_STANDARD 17)
-#set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(PROJECT_NAME "PlaneSweep")
 project(${PROJECT_NAME} LANGUAGES CUDA CXX)
@@ -104,8 +102,10 @@ add_library(${PROJECT_NAME}CUDA ${kernel_plane_sweep_headers} ${kernel_plane_swe
 set_property(TARGET ${PROJECT_NAME}CUDA PROPERTY
                 MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
                 )
-# target_compile_options(${PROJECT_NAME}CUDA PRIVATE "-fmad=true")
-
+target_compile_options(${PROJECT_NAME}CUDA PRIVATE 
+  "$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:CUDA>>:-G;-lineinfo;--source-in-ptx;>"
+  "$<$<COMPILE_LANGUAGE:CUDA>:-fmad=true>"
+)
 
 
 target_include_directories(${PROJECT_NAME}CUDA PUBLIC
@@ -135,7 +135,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
                 CUDA_RUNTIME_LIBRARY Static
                 CUDA_RESOLVE_DEVICE_SYMBOLS ON
                 )
-# target_compile_options(${PROJECT_NAME} PRIVATE "$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:CUDA>>:-g -G;-lineinfo;--source-in-ptx;>")
+target_compile_options(${PROJECT_NAME} PRIVATE "$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:CUDA>>:-g -G;-lineinfo;--source-in-ptx;>")
 # target_compile_options(${PROJECT_NAME} PRIVATE "--use_fast_math")
 
 target_include_directories(${PROJECT_NAME} PUBLIC

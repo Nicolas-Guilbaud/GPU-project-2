@@ -88,7 +88,6 @@ std::vector<cv::Mat> single_cam_homography_gpu(
 
     //CPUrows
     std::vector<float> host_cost_mat(width*height*ZPlanes,255.f);
-    double resA[9],resB[3];
     //GPU
     double *dev_A,*dev_B, *dev_K;
     
