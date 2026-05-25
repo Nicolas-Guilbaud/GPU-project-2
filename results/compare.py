@@ -2,6 +2,7 @@ import numpy as np
 import cv2
 import sys
 import os
+import csv
 
 def load_depth_map(filepath):
     """
@@ -37,7 +38,6 @@ def calculate_depth_error(map1, map2):
         raise ValueError(f"Image shapes do not match: {map1.shape} vs {map2.shape}")
 
     # Create a mask for valid pixels (where depth > 0)
-    # Adjust this threshold if your valid depth can be very close to 0
     valid_mask = (map1 > 0) & (map2 > 0)
 
     if not np.any(valid_mask):
@@ -48,41 +48,66 @@ def calculate_depth_error(map1, map2):
     d2_valid = map2[valid_mask]
 
     # Calculate errors
-    # MAE: Mean Absolute Error
     mae = np.mean(np.abs(d1_valid - d2_valid))
-    
-    # MSE: Mean Squared Error
     mse = np.mean((d1_valid - d2_valid) ** 2)
-    
-    # RMSE: Root Mean Squared Error (often more interpretable)
     rmse = np.sqrt(mse)
 
     return mae, mse, rmse
 
+def write_metrics_to_csv(filename, path2_name, mae, mse, rmse, valid_pixels):
+    """
+    Appends the results to a CSV file. Creates a header if the file doesn't exist.
+    """
+    file_exists = os.path.isfile(filename)
+    
+    with open(filename, mode='a', newline='') as csv_file:
+        writer = csv.writer(csv_file)
+        
+        # Write header only if the file is new
+        if not file_exists:
+            writer.writerow(["Comparison", "Valid Pixels", "MAE", "MSE", "RMSE"])
+        
+        writer.writerow([path2_name, valid_pixels, f"{mae:.6f}", f"{mse:.6f}", f"{rmse:.6f}"])
+
 if __name__ == "__main__":
     # --- CONFIGURATION ---
-    # Replace these with your actual file paths
     path1 = "CPU_depth_map.png"
-    path2 = "depth_map_fast_convol.png"
+    csv_filename = "depth_error_metrics.csv"
+    
+    # Get the current directory path
+    current_dir = os.getcwd()
+    
+    # List all entries in the directory
+    for path2 in os.listdir(current_dir):
+        # Skip the reference file itself and non-png files
+        if path2 == path1 or not path2.endswith(".png"):
+            continue
 
-    print(f"--- Depth Map Error Analysis ---")
-    print(f"Comparing: {path1} vs {path2}\n")
+        print(f"--- Depth Map Error Analysis ---")
+        print(f"Comparing: {path1} vs {path2}\n")
 
-    try:
-        # 1. Load images
-        depth1 = load_depth_map(path1)
-        depth2 = load_depth_map(path2)
+        try:
+            # 1. Load images
+            depth1 = load_depth_map(path1)
+            depth2 = load_depth_map(path2)
 
-        # 2. Calculate metrics
-        mae, mse, rmse = calculate_depth_error(depth1, depth2)
+            # 2. Calculate metrics
+            mae, mse, rmse = calculate_depth_error(depth1, depth2)
+            
+            # Count valid pixels for the report
+            valid_pixels = int(np.sum((depth1 > 0) & (depth2 > 0)))
 
-        # 3. Output results
-        print("\n--- Results ---")
-        print(f"Valid Pixels Analyzed: {np.sum((depth1 > 0) & (depth2 > 0))}")
-        print(f"Mean Absolute Error (MAE): {mae:.6f}")
-        print(f"Mean Squared Error (MSE):  {mse:.6f}")
-        print(f"Root Mean Squared Error (RMSE): {rmse:.6f}")
+            # 3. Output results to console
+            print("\n--- Results ---")
+            print(f"Valid Pixels Analyzed: {valid_pixels}")
+            print(f"Mean Absolute Error (MAE): {mae:.6f}")
+            print(f"Mean Squared Error (MSE):  {mse:.6f}")
+            print(f"Root Mean Squared Error (RMSE): {rmse:.6f}")
 
-    except Exception as e:
-        print(f"Error: {e}")
-        print("Tip: Ensure both images are the same resolution and contain valid depth data (non-zero).")
+            # 4. Write to CSV
+            write_metrics_to_csv(csv_filename, path2, mae, mse, rmse, valid_pixels)
+            print(f"Results appended to {csv_filename}")
+
+        except Exception as e:
+            print(f"Error: {e}")
+            print("Tip: Ensure both images are the same resolution and contain valid depth data (non-zero).")
